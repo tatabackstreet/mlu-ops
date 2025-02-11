@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "core/cnnl_helper.h"
 #include "core/context.h"
 #include "core/gen_case.h"
 #include "core/logging.h"
@@ -34,7 +35,6 @@
 #include "kernels/kernel.h"
 #include "kernels/tensor_stride_process/tensor_stride_process_host.h"
 #include "kernels/tensor_stride_process/tensor_stride_process_mlu.h"
-#include "kernels/utils/cnnl_helper.h"
 
 // 1.creat set destroy
 mluOpStatus_t MLUOP_WIN_API
@@ -140,7 +140,7 @@ mluOpStatus_t genPolicy(mluOpHandle_t handle,
   const int group_size = carafe_desc->group_size;
   const int scale_factor = carafe_desc->scale_factor;
 
-  const int dtype_size = mluop::getSizeOfDataType(input_desc->dtype);
+  const int dtype_size = mluop::getSizeOfDataType(input_desc->getDtype());
 
   const int align_size_NRAM = WRAM_ALIGN_SIZE / dtype_size;
   const int align_size_NFU = NFU_ALIGN_SIZE / dtype_size;
@@ -254,7 +254,7 @@ mluOpStatus_t genPolicy(mluOpHandle_t handle,
           << "NRAM usage (Nb. of dtype_size) = " << nram_usage;
 
   // determine task type and dims
-  *k_type = CNRT_FUNC_TYPE_BLOCK;
+  *k_type = cnrtFuncTypeBlock;
   k_dim->x = core_dim;
   k_dim->y = union_number;
   k_dim->z = 1;
@@ -326,16 +326,18 @@ mluOpStatus_t CarafeForwardParamCheck(
    * dim check
    */
   VLOG(5) << CARAFE_FORWARD_API << "Check dimNb.";
-  PARAM_CHECK_EQ(CARAFE_FORWARD_API, input_desc->dim, carafe_desc->dimNb);
-  PARAM_CHECK_EQ(CARAFE_FORWARD_API, mask_desc->dim, carafe_desc->dimNb);
-  PARAM_CHECK_EQ(CARAFE_FORWARD_API, output_desc->dim, carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_FORWARD_API, input_desc->getDim(), carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_FORWARD_API, mask_desc->getDim(), carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_FORWARD_API, output_desc->getDim(), carafe_desc->dimNb);
   /*
    * layout check
    */
   VLOG(5) << CARAFE_FORWARD_API << "Check tensor layout.";
-  PARAM_CHECK_EQ(CARAFE_FORWARD_API, input_desc->layout, MLUOP_LAYOUT_NHWC);
-  PARAM_CHECK_EQ(CARAFE_FORWARD_API, mask_desc->layout, MLUOP_LAYOUT_NHWC);
-  PARAM_CHECK_EQ(CARAFE_FORWARD_API, output_desc->layout, MLUOP_LAYOUT_NHWC);
+  PARAM_CHECK_EQ(CARAFE_FORWARD_API, input_desc->getLayout(),
+                 MLUOP_LAYOUT_NHWC);
+  PARAM_CHECK_EQ(CARAFE_FORWARD_API, mask_desc->getLayout(), MLUOP_LAYOUT_NHWC);
+  PARAM_CHECK_EQ(CARAFE_FORWARD_API, output_desc->getLayout(),
+                 MLUOP_LAYOUT_NHWC);
   /*
    * tensor contiguousness check
    */
@@ -353,18 +355,18 @@ mluOpStatus_t CarafeForwardParamCheck(
   VLOG(5) << CARAFE_FORWARD_API << "Check off-chip data type.";
   PARAM_CHECK_V2(
       CARAFE_FORWARD_API,
-      (input_desc->dtype == MLUOP_DTYPE_HALF) ||
-          (input_desc->dtype == MLUOP_DTYPE_FLOAT),
+      (input_desc->getDtype() == MLUOP_DTYPE_HALF) ||
+          (input_desc->getDtype() == MLUOP_DTYPE_FLOAT),
       "only half and float are supported, but the data type of input tensor is "
-          << mluOpGetNameOfDataType(input_desc->dtype) << ".");
+          << mluOpGetNameOfDataType(input_desc->getDtype()) << ".");
   PARAM_CHECK_V2(CARAFE_FORWARD_API,
-                 (input_desc->dtype == mask_desc->dtype) &&
-                     (input_desc->dtype == output_desc->dtype),
+                 (input_desc->getDtype() == mask_desc->getDtype()) &&
+                     (input_desc->getDtype() == output_desc->getDtype()),
                  "The input, mask and output tensors should have the same data "
                  "type, but the data types are: "
-                     << mluOpGetNameOfDataType(input_desc->dtype) << ", "
-                     << mluOpGetNameOfDataType(mask_desc->dtype) << ", "
-                     << mluOpGetNameOfDataType(output_desc->dtype) << ".");
+                     << mluOpGetNameOfDataType(input_desc->getDtype()) << ", "
+                     << mluOpGetNameOfDataType(mask_desc->getDtype()) << ", "
+                     << mluOpGetNameOfDataType(output_desc->getDtype()) << ".");
   /*
    * shape param check
    *
@@ -486,25 +488,29 @@ mluOpStatus_t CarafeBackwardParamCheck(
   /*
    * dim check
    */
-  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, input_desc->dim, carafe_desc->dimNb);
-  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, mask_desc->dim, carafe_desc->dimNb);
-  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_output_desc->dim,
+  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, input_desc->getDim(), carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, mask_desc->getDim(), carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_output_desc->getDim(),
                  carafe_desc->dimNb);
-  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_input_desc->dim, carafe_desc->dimNb);
-  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_mask_desc->dim, carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_input_desc->getDim(),
+                 carafe_desc->dimNb);
+  PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_mask_desc->getDim(),
+                 carafe_desc->dimNb);
   VLOG(5) << CARAFE_BACKWARD_API << "dim check end.";
 
   /*
    * layout check
    */
   if (carafe_desc->dimNb == 4) {
-    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, input_desc->layout, MLUOP_LAYOUT_NHWC);
-    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, mask_desc->layout, MLUOP_LAYOUT_NHWC);
-    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_output_desc->layout,
+    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, input_desc->getLayout(),
                    MLUOP_LAYOUT_NHWC);
-    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_input_desc->layout,
+    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, mask_desc->getLayout(),
                    MLUOP_LAYOUT_NHWC);
-    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_mask_desc->layout,
+    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_output_desc->getLayout(),
+                   MLUOP_LAYOUT_NHWC);
+    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_input_desc->getLayout(),
+                   MLUOP_LAYOUT_NHWC);
+    PARAM_CHECK_EQ(CARAFE_BACKWARD_API, grad_mask_desc->getLayout(),
                    MLUOP_LAYOUT_NHWC);
   }
   VLOG(5) << CARAFE_BACKWARD_API << "layout check end.";
@@ -641,36 +647,36 @@ mluOpStatus_t CarafeBackwardParamCheck(
    */
   bool dtype_is_invalid = false;
   dtype_is_invalid =
-      dtype_is_invalid || (input_desc->dtype != MLUOP_DTYPE_HALF &&
-                           input_desc->dtype != MLUOP_DTYPE_FLOAT);
+      dtype_is_invalid || (input_desc->getDtype() != MLUOP_DTYPE_HALF &&
+                           input_desc->getDtype() != MLUOP_DTYPE_FLOAT);
   if (dtype_is_invalid) {
     LOG(ERROR) << CARAFE_BACKWARD_API
                << "the data type of input only support half and float";
     return MLUOP_STATUS_BAD_PARAM;
   }
   dtype_is_invalid =
-      dtype_is_invalid || (input_desc->dtype != mask_desc->dtype);
-  dtype_is_invalid =
-      dtype_is_invalid || (input_desc->dtype != grad_output_desc->dtype);
-  dtype_is_invalid =
-      dtype_is_invalid || (input_desc->dtype != grad_input_desc->dtype);
-  dtype_is_invalid =
-      dtype_is_invalid || (input_desc->dtype != grad_mask_desc->dtype);
+      dtype_is_invalid || (input_desc->getDtype() != mask_desc->getDtype());
+  dtype_is_invalid = dtype_is_invalid ||
+                     (input_desc->getDtype() != grad_output_desc->getDtype());
+  dtype_is_invalid = dtype_is_invalid ||
+                     (input_desc->getDtype() != grad_input_desc->getDtype());
+  dtype_is_invalid = dtype_is_invalid ||
+                     (input_desc->getDtype() != grad_mask_desc->getDtype());
 
   if (dtype_is_invalid) {
     LOG(ERROR) << CARAFE_BACKWARD_API
                << "the data type of input, mask, grad_output, "
                   "grad_input, grad_mask should be the same. "
                << "The data type of input is: "
-               << mluOpGetNameOfDataType(input_desc->dtype) << ", "
+               << mluOpGetNameOfDataType(input_desc->getDtype()) << ", "
                << "The data type of mask is: "
-               << mluOpGetNameOfDataType(mask_desc->dtype) << ", "
+               << mluOpGetNameOfDataType(mask_desc->getDtype()) << ", "
                << "The data type of grad output is: "
-               << mluOpGetNameOfDataType(grad_output_desc->dtype) << ", "
+               << mluOpGetNameOfDataType(grad_output_desc->getDtype()) << ", "
                << "The data type of grad input is: "
-               << mluOpGetNameOfDataType(grad_input_desc->dtype) << ", "
+               << mluOpGetNameOfDataType(grad_input_desc->getDtype()) << ", "
                << "The data type of grad mask is: "
-               << mluOpGetNameOfDataType(grad_mask_desc->dtype) << ".";
+               << mluOpGetNameOfDataType(grad_mask_desc->getDtype()) << ".";
     return MLUOP_STATUS_BAD_PARAM;
   }
   VLOG(5) << CARAFE_BACKWARD_API << "offchip data type check end.";
@@ -783,6 +789,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpCarafeForward(
                 &grid_dimG, &grid_dimC, &job_num),
       "Error occured in generating policy.");
 
+  {
+    LARGE_TENSOR_CHECK("[mluOpCarafeForward]", input_desc);
+    LARGE_TENSOR_CHECK("[mluOpCarafeForward]", mask_desc);
+    LARGE_TENSOR_CHECK("[mluOpCarafeForward]", output_desc);
+  }
   // GEN_CASE
   if (MLUOP_GEN_CASE_ON_NEW) {
     GEN_CASE_START("carafe_forward", "CARAFE_FORWARD");
@@ -790,12 +801,12 @@ mluOpStatus_t MLUOP_WIN_API mluOpCarafeForward(
     GEN_CASE_DATA(true, "input", input, input_desc, 5.1, -5.3);
     GEN_CASE_DATA(true, "mask", mask, mask_desc, 0.0, 1.0);
     GEN_CASE_DATA(false, "output", output, output_desc, 1.7, -1.8);
-    GEN_CASE_OP_PARAM_SINGLE(0, "carafe_forward", "dimnb", carafe_desc->dimNb);
-    GEN_CASE_OP_PARAM_SINGLE(1, "carafe_forward", "kernel_size",
+    GEN_CASE_OP_PARAM_SINGLE(0, "carafe", "dimnb", carafe_desc->dimNb);
+    GEN_CASE_OP_PARAM_SINGLE(1, "carafe", "kernel_size",
                              carafe_desc->kernel_size);
-    GEN_CASE_OP_PARAM_SINGLE(1, "carafe_forward", "group_size",
+    GEN_CASE_OP_PARAM_SINGLE(1, "carafe", "group_size",
                              carafe_desc->group_size);
-    GEN_CASE_OP_PARAM_SINGLE(2, "carafe_forward", "scale_factor",
+    GEN_CASE_OP_PARAM_SINGLE(2, "carafe", "scale_factor",
                              carafe_desc->scale_factor);
     GEN_CASE_TEST_PARAM_NEW(true, true, false, 0.003, 0.003, 0);
   }
@@ -815,8 +826,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpCarafeForward(
   CHECK_RETURN(
       "[mluOpCarafeForward]",
       KernelCarafeForward(
-          k_dim, k_type, handle->queue, input_desc->dtype, input, mask, output,
-          input_dimN, input_dimH, input_dimW, input_dimC, kernel_size,
+          k_dim, k_type, handle->queue, input_desc->getDtype(), input, mask,
+          output, input_dimN, input_dimH, input_dimW, input_dimC, kernel_size,
           group_size, scale_factor, block_dimH, block_dimW, block_dimG,
           block_dimC, grid_dimH, grid_dimW, grid_dimG, grid_dimC));
   GEN_CASE_END();
@@ -840,6 +851,14 @@ mluOpStatus_t MLUOP_WIN_API mluOpCarafeBackward(
     return param_check_status;
   }
 
+  {
+    LARGE_TENSOR_CHECK("[mluOpCarafeBackward]", input_desc);
+    LARGE_TENSOR_CHECK("[mluOpCarafeBackward]", mask_desc);
+    LARGE_TENSOR_CHECK("[mluOpCarafeBackward]", grad_output_desc);
+    LARGE_TENSOR_CHECK("[mluOpCarafeBackward]", grad_input_desc);
+    LARGE_TENSOR_CHECK("[mluOpCarafeBackward]", grad_mask_desc);
+  }
+
   if (MLUOP_GEN_CASE_ON_NEW) {
     GEN_CASE_START("carafe_backward", "CARAFE_BACKWARD");
     GEN_CASE_HANDLE(handle);
@@ -849,12 +868,12 @@ mluOpStatus_t MLUOP_WIN_API mluOpCarafeBackward(
                   -1.8);
     GEN_CASE_DATA(false, "grad_input", grad_input, grad_input_desc, 0, 0);
     GEN_CASE_DATA(false, "grad_mask", grad_mask, grad_mask_desc, 0, 0);
-    GEN_CASE_OP_PARAM_SINGLE(0, "carafe_backward", "dimnb", carafe_desc->dimNb);
-    GEN_CASE_OP_PARAM_SINGLE(1, "carafe_backward", "kernel_size",
+    GEN_CASE_OP_PARAM_SINGLE(0, "carafe", "dimnb", carafe_desc->dimNb);
+    GEN_CASE_OP_PARAM_SINGLE(1, "carafe", "kernel_size",
                              carafe_desc->kernel_size);
-    GEN_CASE_OP_PARAM_SINGLE(1, "carafe_backward", "group_size",
+    GEN_CASE_OP_PARAM_SINGLE(1, "carafe", "group_size",
                              carafe_desc->group_size);
-    GEN_CASE_OP_PARAM_SINGLE(2, "carafe_backward", "scale_factor",
+    GEN_CASE_OP_PARAM_SINGLE(2, "carafe", "scale_factor",
                              carafe_desc->scale_factor);
     GEN_CASE_TEST_PARAM_NEW(true, true, false, 0.003, 0.003, 0);
   }
@@ -883,13 +902,13 @@ mluOpStatus_t MLUOP_WIN_API mluOpCarafeBackward(
   task_dim_x = mluop::runtime::getCoreNumOfEachUnionCapability(handle);
   task_dim_y = mluop::runtime::getClusterLimitCapability(handle);
   cnrtDim3_t k_dim = {task_dim_x, task_dim_y, 1};
-  cnrtJobType_t k_type = CNRT_FUNC_TYPE_BLOCK;
+  cnrtFunctionType_t k_type = cnrtFuncTypeBlock;
 
   VLOG(5) << "Launch KernelCarafeBackward<<<k_type=" << k_type << ", "
           << k_dim.x << ", " << k_dim.y << ", " << k_dim.z << ">>>";
   CHECK_RETURN("[mluOpCarafeBackward]",
                (KernelCarafeBackward(
-                   k_dim, k_type, handle->queue, input_desc->dtype,
+                   k_dim, k_type, handle->queue, input_desc->getDtype(),
                    (void *)input, (void *)mask, (void *)grad_output, grad_input,
                    grad_mask, n, hi, wi, c, k_up, group, scale)));
   GEN_CASE_END();

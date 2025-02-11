@@ -62,8 +62,8 @@ void BoxIouRotatedExecutor::cpuCompute() {
 
   auto box1_desc = tensor_desc_[0].tensor;
   auto box2_desc = tensor_desc_[1].tensor;
-  auto num_box1 = box1_desc->dims[0];
-  auto num_box2 = box2_desc->dims[0];
+  auto num_box1 = box1_desc->getDimIndex(0);
+  auto num_box2 = box2_desc->getDimIndex(0);
 
   int mode = parser_->getProtoNode()->box_iou_rotated_param().mode();
   bool aligned = parser_->getProtoNode()->box_iou_rotated_param().aligned();
@@ -85,17 +85,17 @@ void BoxIouRotatedExecutor::cpuBoxIouRotated(const T *box1_raw,
   VLOG(4) << "num box1: " << num_box1;
   VLOG(4) << "num box2: " << num_box2;
   if (aligned) {
-    int num_ious = tensor_desc_[2].tensor->dims[0];
+    int num_ious = tensor_desc_[2].tensor->getDimIndex(0);
     VLOG(4) << "num_ious: " << num_ious;
     GTEST_CHECK(num_box1 == num_ious,
                 "when aligned, num_box1 should equal to num_ious.");
   } else {
-    int num_ious = tensor_desc_[2].tensor->dims[0];
+    int num_ious = tensor_desc_[2].tensor->getDimIndex(0);
     VLOG(4) << "num_ious[0]: " << num_ious;
-    num_ious = tensor_desc_[2].tensor->dims[1];
+    num_ious = tensor_desc_[2].tensor->getDimIndex(1);
     VLOG(4) << "num_ious[1]: " << num_ious;
-    GTEST_CHECK(((num_box1 == tensor_desc_[2].tensor->dims[0]) ||
-                 (num_box2 == tensor_desc_[2].tensor->dims[1])),
+    GTEST_CHECK(((num_box1 == tensor_desc_[2].tensor->getDimIndex(0)) ||
+                 (num_box2 == tensor_desc_[2].tensor->getDimIndex(1))),
                 "when not aligned, num_ious should equal to num_box1*num_box2");
   }
 
@@ -325,7 +325,7 @@ template <typename T>
 int BoxIouRotatedExecutor::convexHullGraham(const Point<T> (&p)[24],
                                             const int &num_in,
                                             Point<T> (&q)[24]) {
-  assert(num_in >= 2);
+  GTEST_CHECK(num_in >= 2);
   // Step1:
   // Find point with minimum y
   // if more than 1 points have the same minimum y,

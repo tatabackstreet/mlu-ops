@@ -25,13 +25,13 @@
 #include <algorithm>  // std::min
 #include <string>
 
+#include "core/cnnl_helper.h"
 #include "core/gen_case.h"
 #include "core/logging.h"
 #include "core/runtime/device.h"
 #include "core/tensor.h"
 #include "core/type.h"  // mluop::getSizeOfDataType
 #include "kernels/kernel.h"
-#include "kernels/utils/cnnl_helper.h"
 
 static mluOpStatus_t DynamicPointToVoxelBackwardParamCheck(
     const char *interface_name, const mluOpHandle_t handle,
@@ -86,41 +86,44 @@ static mluOpStatus_t DynamicPointToVoxelBackwardParamCheck(
 
   // check data type
   PARAM_CHECK(interface_name,
-              grad_voxel_feats_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(interface_name, feats_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(interface_name, voxel_feats_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(interface_name, grad_feats_desc->dtype == MLUOP_DTYPE_FLOAT);
-
-  PARAM_CHECK(interface_name, point2voxel_map_desc->dtype == MLUOP_DTYPE_INT32);
+              grad_voxel_feats_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(interface_name, feats_desc->getDtype() == MLUOP_DTYPE_FLOAT);
   PARAM_CHECK(interface_name,
-              voxel_points_count_desc->dtype == MLUOP_DTYPE_INT32);
-  PARAM_CHECK(interface_name, voxel_num_desc->dtype == MLUOP_DTYPE_INT32);
+              voxel_feats_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(interface_name, grad_feats_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+
+  PARAM_CHECK(interface_name,
+              point2voxel_map_desc->getDtype() == MLUOP_DTYPE_INT32);
+  PARAM_CHECK(interface_name,
+              voxel_points_count_desc->getDtype() == MLUOP_DTYPE_INT32);
+  PARAM_CHECK(interface_name, voxel_num_desc->getDtype() == MLUOP_DTYPE_INT32);
 
   // check shape
-  PARAM_CHECK(interface_name, grad_voxel_feats_desc->dim == 2);
-  PARAM_CHECK(interface_name, feats_desc->dim == 2);
-  PARAM_CHECK(interface_name, voxel_feats_desc->dim == 2);
-  PARAM_CHECK(interface_name, point2voxel_map_desc->dim == 1);
-  PARAM_CHECK(interface_name, voxel_points_count_desc->dim == 1);
-  PARAM_CHECK(interface_name, voxel_num_desc->dim == 1);
-  PARAM_CHECK(interface_name, grad_feats_desc->dim == 2);
+  PARAM_CHECK(interface_name, grad_voxel_feats_desc->getDim() == 2);
+  PARAM_CHECK(interface_name, feats_desc->getDim() == 2);
+  PARAM_CHECK(interface_name, voxel_feats_desc->getDim() == 2);
+  PARAM_CHECK(interface_name, point2voxel_map_desc->getDim() == 1);
+  PARAM_CHECK(interface_name, voxel_points_count_desc->getDim() == 1);
+  PARAM_CHECK(interface_name, voxel_num_desc->getDim() == 1);
+  PARAM_CHECK(interface_name, grad_feats_desc->getDim() == 2);
 
+  PARAM_CHECK(interface_name, feats_desc->getDimIndex(1) ==
+                                  grad_voxel_feats_desc->getDimIndex(1));
+  PARAM_CHECK(interface_name, voxel_feats_desc->getDimIndex(0) ==
+                                  grad_voxel_feats_desc->getDimIndex(0));
+  PARAM_CHECK(interface_name, voxel_feats_desc->getDimIndex(1) ==
+                                  grad_voxel_feats_desc->getDimIndex(1));
+  PARAM_CHECK(interface_name, point2voxel_map_desc->getDimIndex(0) ==
+                                  feats_desc->getDimIndex(0));
+  PARAM_CHECK(interface_name, voxel_points_count_desc->getDimIndex(0) ==
+                                  grad_voxel_feats_desc->getDimIndex(0));
+  PARAM_CHECK(interface_name, voxel_num_desc->getDimIndex(0) == 1);
   PARAM_CHECK(interface_name,
-              feats_desc->dims[1] == grad_voxel_feats_desc->dims[1]);
-  PARAM_CHECK(interface_name,
-              voxel_feats_desc->dims[0] == grad_voxel_feats_desc->dims[0]);
-  PARAM_CHECK(interface_name,
-              voxel_feats_desc->dims[1] == grad_voxel_feats_desc->dims[1]);
-  PARAM_CHECK(interface_name,
-              point2voxel_map_desc->dims[0] == feats_desc->dims[0]);
-  PARAM_CHECK(interface_name, voxel_points_count_desc->dims[0] ==
-                                  grad_voxel_feats_desc->dims[0]);
-  PARAM_CHECK(interface_name, voxel_num_desc->dims[0] == 1);
-  PARAM_CHECK(interface_name, grad_feats_desc->dims[0] == feats_desc->dims[0]);
-  PARAM_CHECK(interface_name,
-              grad_feats_desc->dims[1] == grad_voxel_feats_desc->dims[1]);
-  PARAM_CHECK(interface_name,
-              feats_desc->dims[0] >= grad_voxel_feats_desc->dims[0]);
+              grad_feats_desc->getDimIndex(0) == feats_desc->getDimIndex(0));
+  PARAM_CHECK(interface_name, grad_feats_desc->getDimIndex(1) ==
+                                  grad_voxel_feats_desc->getDimIndex(1));
+  PARAM_CHECK(interface_name, feats_desc->getDimIndex(0) >=
+                                  grad_voxel_feats_desc->getDimIndex(0));
 
   // param check
   if (reduce_type != MLUOP_REDUCE_DMAX) {
@@ -138,11 +141,11 @@ static mluOpStatus_t DynamicPointToVoxelBackwardParamCheck(
   TENSOR_NUM_CHECK(interface_name, feats_element_num, LARGE_TENSOR_NUM, "");
 
   // kernel size check
-  const int N = feats_desc->dims[0];
-  const int C = feats_desc->dims[1];
-  const size_t dtype_bytes = mluop::getSizeOfDataType(feats_desc->dtype);
+  const int N = feats_desc->getDimIndex(0);
+  const int C = feats_desc->getDimIndex(1);
+  const size_t dtype_bytes = mluop::getSizeOfDataType(feats_desc->getDtype());
   const size_t idx_dtype_bytes =
-      mluop::getSizeOfDataType(point2voxel_map_desc->dtype);
+      mluop::getSizeOfDataType(point2voxel_map_desc->getDtype());
   if (N * (idx_dtype_bytes + 1) + C * (2 * dtype_bytes + 3 * idx_dtype_bytes) +
           idx_dtype_bytes >
       handle->nram_size) {
@@ -153,7 +156,8 @@ static mluOpStatus_t DynamicPointToVoxelBackwardParamCheck(
            "shape is ["
         << N << ", " << C << "]"
         << ", should meet constraint : "
-           "5*feats_desc->dims[0]+20*feats_desc->dims[1]+sizeof(int) <= "
+           "5*feats_desc->getDimIndex(0)+20*feats_desc->getDimIndex(1)+sizeof("
+           "int) <= "
         << handle->nram_size;
     return MLUOP_STATUS_BAD_PARAM;
   }
@@ -192,19 +196,19 @@ static void policyFunc(const mluOpHandle_t handle, cnrtDim3_t *k_dim,
   } else {
     if (N <= 4) {
       k_dim->x = core_num * 1;
-      *k_type = CNRT_FUNC_TYPE_UNION1;
+      *k_type = cnrtFuncTypeUnion1;
     } else if (N <= 8) {
       k_dim->x = core_num * 2;
-      *k_type = CNRT_FUNC_TYPE_UNION2;
+      *k_type = cnrtFuncTypeUnion2;
     } else if (N <= 16) {
       k_dim->x = core_num * 4;
-      *k_type = CNRT_FUNC_TYPE_UNION4;
+      *k_type = cnrtFuncTypeUnion4;
     } else if (N <= 32) {
       k_dim->x = core_num * 8;
-      *k_type = CNRT_FUNC_TYPE_UNION8;
+      *k_type = cnrtFuncTypeUnion8;
     } else if (N <= 64) {
       k_dim->x = core_num * 16;
-      *k_type = CNRT_FUNC_TYPE_UNION16;
+      *k_type = cnrtFuncTypeUnion16;
     } else {
       LOG(ERROR)
           << "[mluOpDynamicPointToVoxelBackward]: failed to choose kernel "
@@ -266,8 +270,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelBackward(
     GEN_CASE_TEST_PARAM_NEW(false, false, true, 0.003, 0.003, 0);
   }
 
-  const int N = feats_desc->dims[0];
-  const int C = feats_desc->dims[1];
+  const int N = feats_desc->getDimIndex(0);
+  const int C = feats_desc->getDimIndex(1);
   const auto grad_voxel_feats_element_num =
       mluOpGetTensorElementNum(grad_voxel_feats_desc);
   const auto grad_feats_element_num = mluOpGetTensorElementNum(grad_feats_desc);
@@ -311,7 +315,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpDynamicPointToVoxelBackward(
     CHECK_RETURN("[mluOpDynamicPointToVoxelBackward]",
                  KernelDynamicPointToVoxelBackward(
                      k_dim, k_type, handle->queue, feats, voxel_feats,
-                     grad_feats, workspace, point2voxel_map, voxel_num, N, C));
+                     workspace, point2voxel_map, voxel_num, N, C));
     // 4. scatter
     cnnlScatterNdMode_t scatter_mode = CNNL_SCATTERND_ADD;
     mluOpTensorDescriptor_t updates_desc;
@@ -368,6 +372,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetDynamicPointToVoxelBackwardWorkspaceSize(
                << "Please check the device version!";
     return MLUOP_STATUS_ARCH_MISMATCH;
   }
+
   PARAM_CHECK(interface_name, grad_voxel_feats_desc != NULL);
   PARAM_CHECK(interface_name, feats_desc != NULL);
   PARAM_CHECK(interface_name, voxel_feats_desc != NULL);
@@ -375,8 +380,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetDynamicPointToVoxelBackwardWorkspaceSize(
   PARAM_CHECK(interface_name, voxel_points_count_desc != NULL);
   PARAM_CHECK(interface_name, voxel_num_desc != NULL);
   PARAM_CHECK(interface_name, workspace_size != NULL);
-  const int N = feats_desc->dims[0];
-  const int C = feats_desc->dims[1];
+  const int N = feats_desc->getDimIndex(0);
+  const int C = feats_desc->getDimIndex(1);
   *workspace_size = N * C * sizeof(int);
   return MLUOP_STATUS_SUCCESS;
 }

@@ -26,7 +26,7 @@
 [![ci](https://github.com/Cambricon/mlu-ops/actions/workflows/ci.yaml/badge.svg)](https://github.com/Cambricon/mlu-ops/actions/workflows/ci.yaml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Cambricon/mlu-ops/blob/master/LICENSE)
 ![python](https://img.shields.io/badge/python-3.8,_3.9,_3.10-yellow)
-![system](https://img.shields.io/badge/system-x86_Ubuntu18.04,_Ubuntu20.04,_Centos7.6,_Centos8.5,_Kylin10-cyan)
+![system](https://img.shields.io/badge/system-x86_Ubuntu22.04,_Centos7.6,_Centos8.5,_Kylin10-cyan)
 
 </div>
 
@@ -49,14 +49,15 @@ MLU-OPS™提供了以下功能：
 ## 依赖条件
 
 - 操作系统：
-  - 支持 x86_64 架构下的 Ubuntu20.04、Centos7.6、Centos8.5、Kylin10
-  - MLU-OPS™ v1.0.0版本后将不再支持 Ubuntu18.04。Ubuntu22.04系统将在后续的版本提供支持。
+  - 支持 x86_64 架构下的 Ubuntu22.04、Centos7.6、Centos8.5、Kylin10、Debian10、Debian12。
+  - MLU-OPS™ v1.0.0版本后将不再支持 Ubuntu18.04。
+  - MLU-OPS™ v1.4.1版本后将不再支持 Ubuntu20.04。
 - 寒武纪 MLU SDK：
-  - 编译和运行时依赖 CNToolkit v3.12.3 或更高版本，CNNL v1.26.1 或者更高版本
+  - 编译和运行时依赖 CNToolkit v4.0.0 或更高版本，CNNL v1.28.0 或者更高版本
 - 寒武纪 MLU 驱动：
-  - 运行时依赖驱动 v5.10.25 或更高版本
+  - 运行时依赖驱动 v6.0.3 或更高版本
 - 外部链接库：
-  - libxml2-dev、libprotobuf-dev、protobuf-compiler、llvm-6.0-dev、libeigen3-dev>=3.4
+  - libxml2-dev、libprotobuf-dev、protobuf-compiler、llvm-6.0-dev、libfmt-dev>=11.0.2、libeigen3-dev>=3.4
 - Python环境：
   - 依赖Python-3版本（默认版本 python 3.8.0，最低要求 python 3.6.0）
 
@@ -65,7 +66,7 @@ MLU-OPS™提供了以下功能：
 
 - 获取 MLU-OPS™ 代码
 
-以Ubuntu20.04版本为例
+以Ubuntu22.04版本为例
 
   ```sh
   git clone https://github.com/Cambricon/mlu-ops.git
@@ -76,12 +77,12 @@ MLU-OPS™提供了以下功能：
 - 准备 CNToolkit、CNNL 环境
 
   ```sh
-  wget https://sdk.cambricon.com/static/Basis/MLU370_X86_ubuntu20.04/cntoolkit_x.x.x-x.ubuntu20.04_amd64.deb
-  wget https://sdk.cambricon.com/static/Basis/MLU370_X86_ubuntu20.04/cnnl_x.x.x-x.ubuntu20.04_amd64.deb
-  sudo apt-get install ./cntoolkit-x.x.x-x.ubuntu20.04_amd64.deb
+  wget https://sdk.cambricon.com/static/Basis/MLU370_X86_ubuntu22.04/cntoolkit_x.x.x-x.ubuntu22.04_amd64.deb
+  wget https://sdk.cambricon.com/static/Basis/MLU370_X86_ubuntu22.04/cnnl_x.x.x-x.ubuntu22.04_amd64.deb
+  sudo apt-get install ./cntoolkit-x.x.x-x.ubuntu22.04_amd64.deb
   sudo apt-get update
   sudo apt-get install cncc cnas cnbin cndrv cndev cnrt cnrtc cngdb cnperf
-  sudo apt-get install ./cnnl_x.x.x-x.ubuntu20.04_amd64.deb
+  sudo apt-get install ./cnnl_x.x.x-x.ubuntu22.04_amd64.deb
   ```
 
 - 准备 Python-3.8.0 环境
@@ -93,10 +94,23 @@ MLU-OPS™提供了以下功能：
   make -j24 && make install
 
 - 准备链接库环境
+  - apt-get安装依赖库
 
   ```sh
   sudo apt-get update
   sudo apt-get install protobuf-compiler libxml2-dev libprotobuf-dev llvm-6.0-dev
+  ```
+  - 源码编译fmtlib
+  ```sh
+  git clone --branch 11.0.2 https://github.com/fmtlib/fmt.git --depth=1
+  cd fmt
+  mkdir build && cd build
+  cmake ..
+  make -j32
+  make install
+  # 验证是否安装成功
+  pkg-config --modversion fmt
+  # 若输出 11.0.2，表示fmt安装成功
   ```
 
 ## 获取关于 BANG 语言基础和开发相关工具介绍的文档
@@ -127,7 +141,7 @@ MLU-OPS™提供了以下功能：
 ## 编译、开发与测试
 
 提供基于 BANG C 的算子开发教程，涵盖算子入门、算子进阶、算子高级篇，帮助开发者迅速上手算子开发。
-具体见[ BANG C 算子开发指南](./docs/BANG%20C%20OPS-Develop-Guide.md)。
+具体见[ BANG C 算子开发指南](./docs/BANG-C-OPS-Develop-Guide.md)。
 
 提供基于寒武纪人工智能单元（MLU）开发高性能算子、C 接口封装的示例代码。
 MLU-OPS™ 具体的编译、开发与测试介绍见 [MLU-OPS™算子编译、开发与测试介绍](docs/MLU-OPS-Compile-Develop-And-Test.md)。

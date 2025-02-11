@@ -29,7 +29,6 @@
 #include "kernels/sparse_conv/get_indice_pairs/normal_get_indice_pairs.h"
 #include "kernels/kernel.h"
 
-#if __BANG_ARCH__ >= 370
 __mlu_func__ void assignTask(const int32_t num_total_task,
                              const int32_t &taskid, const int32_t &taskdim,
                              int32_t &task_offset, int32_t &num_cur_task) {
@@ -77,7 +76,7 @@ func: generate stage index from start_index
 */
 __mlu_func__ void stepIndex(int32_t *dst_nram, int32_t start_index,
                             int32_t length) {
-#if (__BANG_ARCH__ == 372 || __BANG_ARCH__ == 322 || __BANG_ARCH__ == 592)
+#if __BANG_ARCH__ >= 372
   int32_t align_num = 128;
   int32_t repeat = (int32_t)(logf(length / align_num) / logf(2));
   int32_t remain = length / align_num - powf(2, repeat);
@@ -144,10 +143,12 @@ __mlu_func__ void computeOutputIndex(float *nram_output, float *nram_input,
   for (int i = 0; i < 3; ++i) {
     int32_t out_offset = offset - deal_num;
     float stride_s = i == 0 ? stride_sd : i == 1 ? stride_sh : stride_sw;
-    int32_t padding_p =
-        i == 0 ? padding.p_d : i == 1 ? (padding.p_h) : (padding.p_w);
-    int32_t dilation_d =
-        i == 0 ? dilation.d_d : i == 1 ? dilation.d_h : dilation.d_w;
+    int32_t padding_p = i == 0   ? padding.p_d
+                        : i == 1 ? (padding.p_h)
+                                 : (padding.p_w);
+    int32_t dilation_d = i == 0   ? dilation.d_d
+                         : i == 1 ? dilation.d_h
+                                  : dilation.d_w;
     float *temp_filter_index =
         i == 0 ? filter_kd_index : (i == 1 ? filter_kh_index : filter_kw_index);
     __bang_add_scalar(nram_output + out_offset, nram_input + offset,
@@ -245,13 +246,13 @@ __mlu_func__ void genIndiceOutExpand(int32_t *nram_output, int32_t *mask_all,
                                      int32_t *nram_input, int32_t *temp,
                                      int32_t deal_num, int32_t output_size) {
   __bang_mul_scalar((int32_t *)temp, (int32_t *)mask_all, int(-1), deal_num);
-  __bang_band((char *)nram_output, (char *)nram_input, (char *)temp,
+  __bang_band((int8_t *)nram_output, (int8_t *)nram_input, (int8_t *)temp,
               deal_num * sizeof(int32_t));
   // clost to intmax
   __bang_sub_scalar((int32_t *)temp, (int32_t *)mask_all, int(1), deal_num);
   __bang_mul_scalar((int32_t *)temp, (int32_t *)temp, int(-1 * output_size),
                     deal_num);
-  __bang_bor((char *)nram_output, (char *)nram_output, (char *)temp,
+  __bang_bor((int8_t *)nram_output, (int8_t *)nram_output, (int8_t *)temp,
              deal_num * sizeof(int32_t));
 }
 
@@ -344,5 +345,4 @@ __mlu_func__ void genIndiceInExpand(int32_t *nram_output, int32_t *nram_input,
   __bang_add((int32_t *)nram_output, (int32_t *)nram_output,
              (int32_t *)nram_aux + 4 * deal_num, deal_num);
 }
-#endif
 #endif  // KERNELS_GET_INDICE_PAIRS_GET_INDICE_PAIRS_UTILS_H_

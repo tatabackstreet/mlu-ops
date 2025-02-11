@@ -26,7 +26,7 @@
 
 #include "core/logging.h"
 
-#if (__BANG_ARCH__ == 592)
+#if (__BANG_ARCH__ >= 592)
 
 #define MAX_MEMCPY_SEGNUM (65536)
 #define NRAM_REMAIN_SIZE (48 * 1024)
@@ -35,9 +35,9 @@
 #define WRAM_AVALIABLE_SIZE (__MLU_WRAM_SIZE__ * 1024)
 #define SRAM_AVALIABLE_SIZE (__MLU_SRAM_SIZE__ * 1024 - SRAM_REMAIN_SIZE)
 
-__nram__ char nram_buffer[NRAM_AVALIABLE_SIZE];
-__mlu_shared__ char sram_buffer[SRAM_AVALIABLE_SIZE];
-__wram__ char wram_buffer[WRAM_AVALIABLE_SIZE];
+__nram__ int8_t nram_buffer[NRAM_AVALIABLE_SIZE];
+__mlu_shared__ int8_t sram_buffer[SRAM_AVALIABLE_SIZE];
+__wram__ int8_t wram_buffer[WRAM_AVALIABLE_SIZE];
 
 __mlu_func__ void loadNram2Gpr(int32_t& v1, int32_t& v2, int32_t& v3,
                                int32_t& v4, const int32_t* p1,
@@ -68,7 +68,7 @@ __mlu_func__ void memPolicyBackward(
     T*& grad_wp_nram_stg3,         // (4, total_deal_n, num_levels, num_points)
     int32_t*& data_offset_sram, T*& weight_polation_sram, T*& grad_wp_sram,
     T*& weight_attn_sram, T*& cond_point_polation_sram, T*& delta_xy_sram,
-    char* nram_buffer, char* sram_buffer, int32_t& max_cached_n,
+    int8_t* nram_buffer, int8_t* sram_buffer, int32_t& max_cached_n,
     int32_t& stage_1_max_deal_n, int32_t& stage_2_max_deal_n,
     int32_t& stage_3_max_deal_n, int32_t& mask_size,
     const int32_t nram_avaliable_size, const int32_t sram_avaliable_size,
@@ -163,7 +163,7 @@ __mlu_func__ void backwardStageTwoLoop(
     T* weight_polation_sram, T* grad_wp_sram, T* weight_attn_sram,
     T* cond_point_polation_sram, T* delta_xy_sram, T* data_value_gdram,
     T* grad_output_gdram, T* grad_value_gdram, T* grad_attn_weight_gdram,
-    char* wram_buffer, const int32_t total_deal_n, const int32_t max_deal_n,
+    int8_t* wram_buffer, const int32_t total_deal_n, const int32_t max_deal_n,
     const int32_t input_stride_2, const int32_t input_stride_3,
     const int32_t output_stride_2, const int32_t num_heads,
     const int32_t channels, const int32_t num_levels,
@@ -203,18 +203,19 @@ __mlu_func__ void backwardStageTwoLoop(
     if (nq_nl_np_pad8 == nq_nl_np) {
       int32_t bit_cond_stride_4 = 4 * bit_cond_stride;
       __bang_gt_bitindex((T*)bit_cond_nram, cond_nram, tmp_zero, nq_nl_np_4);
-      __bang_bnot((char*)bit_cond_reverse_nram, (char*)bit_cond_nram,
+      __bang_bnot((int8_t*)bit_cond_reverse_nram, (int8_t*)bit_cond_nram,
                   4 * bit_cond_stride);
       __bang_gt_bitindex((T*)(bit_cond_nram + bit_cond_stride_4),
                          cond_nram + nq_nl_np_4, tmp_zero, nq_nl_np);
-      __bang_bnot((char*)(bit_cond_reverse_nram + bit_cond_stride_4),
-                  (char*)(bit_cond_nram + bit_cond_stride_4), bit_cond_stride);
+      __bang_bnot((int8_t*)(bit_cond_reverse_nram + bit_cond_stride_4),
+                  (int8_t*)(bit_cond_nram + bit_cond_stride_4),
+                  bit_cond_stride);
     } else {
       for (int j = 0; j < 5; j++) {
         __bang_gt_bitindex((T*)((int8_t*)bit_cond_nram + j * bit_cond_stride),
                            cond_nram + j * nq_nl_np, tmp_zero, nq_nl_np_pad8);
-        __bang_bnot((char*)bit_cond_reverse_nram + j * bit_cond_stride,
-                    (char*)bit_cond_nram + j * bit_cond_stride,
+        __bang_bnot((int8_t*)bit_cond_reverse_nram + j * bit_cond_stride,
+                    (int8_t*)bit_cond_nram + j * bit_cond_stride,
                     bit_cond_stride);
       }
     }
@@ -232,14 +233,14 @@ __mlu_func__ void backwardStageTwoLoop(
     for (int j = 0; j < 5; j++) {
       T* tmp_wp = weight_polation_nram + (j - 1) * nq_nl_np;
       if (j < 4) {
-        gatherAsync(v_ping, zeros_nram, (unsigned int*)offset_zero_nram_stg2,
-                    bit_cond_reverse_nram + j * bit_cond_stride,
-                    channels * sizeof(T), NRAM2NRAM, channels * sizeof(T),
-                    nq_nl_np);
-        gatherAsync(v_ping, data_value_gdram,
-                    (unsigned int*)offset_nram + j * nq_nl_np,
-                    bit_cond_nram + j * bit_cond_stride, channels * sizeof(T),
-                    GDRAM2NRAM, channels * sizeof(T), nq_nl_np);
+        gatherAsync<T>(v_ping, zeros_nram, (unsigned int*)offset_zero_nram_stg2,
+                       bit_cond_reverse_nram + j * bit_cond_stride,
+                       channels * sizeof(T), NRAM2NRAM, channels * sizeof(T),
+                       nq_nl_np);
+        gatherAsync<T>(
+            v_ping, data_value_gdram, (unsigned int*)offset_nram + j * nq_nl_np,
+            bit_cond_nram + j * bit_cond_stride, channels * sizeof(T),
+            GDRAM2NRAM, channels * sizeof(T), nq_nl_np);
       }
 
       if (j == 0) {
@@ -248,10 +249,10 @@ __mlu_func__ void backwardStageTwoLoop(
                        NRAM2NRAM, channels * sizeof(T), num_levels_points - 1,
                        num_levels_points * channels * sizeof(T), deal_n - 1, 0,
                        num_levels_points - 1, channels * sizeof(T), deal_n - 1);
-        gatherAsync(buffer, zeros_nram, (unsigned int*)offset_zero_nram_stg2,
-                    bit_cond_reverse_nram + 4 * bit_cond_stride,
-                    channels * sizeof(T), NRAM2NRAM, channels * sizeof(T),
-                    nq_nl_np);
+        gatherAsync<T>(buffer, zeros_nram, (unsigned int*)offset_zero_nram_stg2,
+                       bit_cond_reverse_nram + 4 * bit_cond_stride,
+                       channels * sizeof(T), NRAM2NRAM, channels * sizeof(T),
+                       nq_nl_np);
         __bang_write_value(value_wp, nq_nl_np_c, (T)0);  // clear value*wp
         __sync_move();
         // (n, nl, np, c) => (c, n, nl, np)
@@ -281,7 +282,7 @@ __mlu_func__ void backwardStageTwoLoop(
                            nq_nl_np, 0);
         __bang_mul_scalar((int32_t*)v_pong, (int32_t*)v_pong,
                           (int32_t)0xffffffff, nq_nl_np);
-        __bang_band((char*)buffer, (char*)buffer, (char*)v_pong,
+        __bang_band((int8_t*)buffer, (int8_t*)buffer, (int8_t*)v_pong,
                     nq_nl_np * sizeof(T));
         // (nq, nl, np) => (Nq, nl, np)
         __sync_compute();
@@ -330,13 +331,13 @@ __mlu_func__ void backwardStageTwoLoop(
     int32_t all_valid_count = __bang_sum(cond_all_valid, nq_nl_np);
     int32_t* dst_offset = (int32_t*)offset_zero_nram_stg2;
     for (int i = 0; i < 4; i++) {
-      __bang_collect((T*)dst_offset + i * nq_nl_np,
-                     (T*)offset_nram + i * nq_nl_np, cond_all_valid, nq_nl_np);
+      __bang_filter((T*)dst_offset + i * nq_nl_np,
+                    (T*)offset_nram + i * nq_nl_np, cond_all_valid, nq_nl_np);
     }
     int32_t* src_offset = (int32_t*)inter_grad;
     int32_t* stride_4_2 = dst_offset + 3 * nq_nl_np;
     int32_t* stride_1_2 = dst_offset;
-    __bang_collect((T*)src_offset, (T*)seq_nram, cond_all_valid, nq_nl_np);
+    __bang_filter((T*)src_offset, (T*)seq_nram, cond_all_valid, nq_nl_np);
     __bang_mul_scalar(src_offset, src_offset, channels * sizeof(T), nq_nl_np);
     __bang_sub(stride_4_2, stride_4_2, dst_offset + nq_nl_np, nq_nl_np);
     __bang_sub(stride_1_2, stride_1_2, dst_offset + nq_nl_np, nq_nl_np);
@@ -366,9 +367,9 @@ __mlu_func__ void backwardStageTwoLoop(
       int32_t* tmp_src_offset = (int32_t*)inter_grad;
       int32_t valid_count = __bang_sum(tmp_cond, nq_nl_np);
       if (valid_count > 0) {
-        __bang_collect((T*)tmp_dst_offset, (T*)tmp_dst_offset, tmp_cond,
-                       nq_nl_np);
-        __bang_collect((T*)tmp_src_offset, (T*)seq_nram, tmp_cond, nq_nl_np);
+        __bang_filter((T*)tmp_dst_offset, (T*)tmp_dst_offset, tmp_cond,
+                      nq_nl_np);
+        __bang_filter((T*)tmp_src_offset, (T*)seq_nram, tmp_cond, nq_nl_np);
         __bang_mul_scalar(tmp_src_offset, tmp_src_offset, channels * sizeof(T),
                           valid_count);
         for (int p = 0; p < valid_count; p++) {
@@ -453,7 +454,7 @@ __mlu_global__ void MLUUnion1KernelMsDeformAttnBackwardFastKernel(
     const int32_t channels, const int32_t num_levels, const int32_t num_query,
     const int32_t num_points, float* grad_value, float* grad_sampling_loc,
     float* grad_attn_weight) {
-#if (__BANG_ARCH__ == 592)
+#if (__BANG_ARCH__ >= 592)
   using T = float;
   const int32_t num_keys = spatial_size;
   const int32_t input_stride_4 =

@@ -281,7 +281,7 @@ void roipoint_pool3d_union1(const int batch_size,
       __memcpy_async(ping_input2, points_y_start + (bs_idx * pts_num) * sizeof(T), span_num_deal_size, GDRAM2NRAM);
       __memcpy_async(ping_input3, points_z_start + (bs_idx * pts_num) * sizeof(T), span_num_deal_size, GDRAM2NRAM);
       __memcpy_async(point_features, point_features_start, span_num_deal_size, GDRAM2NRAM);
-      __bang_write_zero((T *)cnt, boxes_num);
+      __bang_write_value((T *)cnt, boxes_num, (T)0);;
 
       size_t box_start = bs_idx == batch_start ? first_batch_box_start : 0;
       size_t box_end   = bs_idx == batch_end ? last_batch_box_end : boxes_num;
@@ -364,12 +364,7 @@ void check_pts_in_box3d(const T *boxes3d,
   // |z - cz|
   __bang_active_abs(auxiliary_c, auxiliary_c, deal_num);
   // |z - cz| > dz / 2.0
-#if __BANG_ARCH__ >= 322
   __bang_gt_scalar(auxiliary_c, auxiliary_c, (0.5 * dz), deal_num);
-#else
-  __bang_write_value(auxiliary_d, deal_num, (0.5 * dz));
-  __bang_lt(auxiliary_c, auxiliary_d, auxiliary_c, deal_num);
-#endif
   // !(|z - cz| > dz / 2.0)
   __bang_not(auxiliary_c, auxiliary_c, deal_num);
   // (x - cx) * cos(-rz)
@@ -381,12 +376,7 @@ void check_pts_in_box3d(const T *boxes3d,
   // |local_x|
   __bang_active_abs(auxiliary_d, auxiliary_d, deal_num);
   // |local_x| < dx / 2.0
-#if __BANG_ARCH__ >= 322
   __bang_lt_scalar(auxiliary_d, auxiliary_d, (0.5 * dx), deal_num);
-#else
-  __bang_write_value(auxiliary_e, deal_num, (0.5 * dx));
-  __bang_gt(auxiliary_d, auxiliary_e, auxiliary_d, deal_num);
-#endif
   // (x - cx) * sin(-rz)
   __bang_mul_scalar(auxiliary_e, auxiliary_a, sina, deal_num);
   // (y - cy) * cos(-rz)
@@ -396,12 +386,7 @@ void check_pts_in_box3d(const T *boxes3d,
   // |local_y|
   __bang_active_abs(auxiliary_e, auxiliary_e, deal_num);
   // |local_y| < dy / 2.0
-#if __BANG_ARCH__ >= 322
   __bang_lt_scalar(auxiliary_e, auxiliary_e, (0.5 * dy), deal_num);
-#else
-  __bang_write_value(auxiliary_f, deal_num, (0.5 * dy));
-  __bang_gt(auxiliary_e, auxiliary_f, auxiliary_e, deal_num);
-#endif
   // pts_assign = |x - cx| < dx / 2.0 && |y - cy| < dy / 2.0 && |z - cz| <= dz / 2.0
   __bang_mul(pts_assign, auxiliary_c, auxiliary_d, deal_num);
   __bang_mul(pts_assign, pts_assign, auxiliary_e, deal_num);

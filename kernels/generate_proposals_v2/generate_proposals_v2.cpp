@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <string>
 
+#include "core/cnnl_helper.h"
 #include "core/context.h"
 #include "core/gen_case.h"
 #include "core/logging.h"
@@ -32,7 +33,6 @@
 #include "core/tensor.h"
 #include "core/type.h"
 #include "kernels/kernel.h"
-#include "kernels/utils/cnnl_helper.h"
 
 #define GDRAM_ALIGN_SIZE 128
 static void policyFunc(mluOpHandle_t handle, cnrtDim3_t *k_dim,
@@ -51,9 +51,9 @@ static void policyFunc(mluOpHandle_t handle, cnrtDim3_t *k_dim,
   k_dim->z = 1;
   if (job < 4) {
     k_dim->x = 1;
-    *k_type = CNRT_FUNC_TYPE_BLOCK;
+    *k_type = cnrtFuncTypeBlock;
   } else {
-    *k_type = CNRT_FUNC_TYPE_UNION1;
+    *k_type = cnrtFuncTypeUnion1;
     k_dim->x = mluop::runtime::getCoreNumOfEachUnionCapability(handle);
   }
   return;
@@ -72,21 +72,21 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetGenerateProposalsV2WorkspaceSize(
   PARAM_CHECK(API, scores_desc != NULL);
   PARAM_CHECK(API, size != NULL);
 
-  PARAM_CHECK(API, scores_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, scores_desc->layout == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, scores_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, scores_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
 
-  PARAM_CHECK_EQ(API, scores_desc->dim, 4);
-  PARAM_CHECK_NE(API, scores_desc->dims[1], 0);
-  PARAM_CHECK_NE(API, scores_desc->dims[2], 0);
-  PARAM_CHECK_NE(API, scores_desc->dims[3], 0);
+  PARAM_CHECK_EQ(API, scores_desc->getDim(), 4);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(1), 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(2), 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(3), 0);
 
   const size_t scores_num = mluOpGetTensorElementNum(scores_desc);
   TENSOR_NUM_CHECK(API, scores_num, LARGE_TENSOR_NUM, "");
 
-  const int64_t n = scores_desc->dims[0];
-  const int64_t h = scores_desc->dims[1];
-  const int64_t w = scores_desc->dims[2];
-  const int64_t a = scores_desc->dims[3];
+  const int64_t n = scores_desc->getDimIndex(0);
+  const int64_t h = scores_desc->getDimIndex(1);
+  const int64_t w = scores_desc->getDimIndex(2);
+  const int64_t a = scores_desc->getDimIndex(3);
   const int64_t hwa = h * w * a;
   if (handle->arch >= 592) {
     DEFINE_CREATE_AND_SET_CNNL_HANDLE(handle, cnnl_handle);
@@ -126,7 +126,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetGenerateProposalsV2WorkspaceSize(
     CALL_CNNL(cnnlDestroyTensorDescriptor(sorted_index_desc));
     DESTROY_CNNL_HANDLE(cnnl_handle);
     size_t data_size = 0;
-    mluOpGetSizeOfDataType(scores_desc->dtype, &data_size);
+    mluOpGetSizeOfDataType(scores_desc->getDtype(), &data_size);
 
     const size_t topk_workspace_size_align =
         PAD_UP(topk_workspace_size, GDRAM_ALIGN_SIZE);
@@ -157,21 +157,21 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetGenerateProposalsV2WorkspaceSize_v2(
   PARAM_CHECK(API, scores_desc != NULL);
   PARAM_CHECK(API, size != NULL);
 
-  PARAM_CHECK(API, scores_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, scores_desc->layout == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, scores_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, scores_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
 
-  PARAM_CHECK_EQ(API, scores_desc->dim, 4);
-  PARAM_CHECK_NE(API, scores_desc->dims[1], 0);
-  PARAM_CHECK_NE(API, scores_desc->dims[2], 0);
-  PARAM_CHECK_NE(API, scores_desc->dims[3], 0);
+  PARAM_CHECK_EQ(API, scores_desc->getDim(), 4);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(1), 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(2), 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(3), 0);
 
   const size_t scores_num = mluOpGetTensorElementNum(scores_desc);
   TENSOR_NUM_CHECK(API, scores_num, LARGE_TENSOR_NUM, "");
 
-  const int64_t n = scores_desc->dims[0];
-  const int64_t h = scores_desc->dims[1];
-  const int64_t w = scores_desc->dims[2];
-  const int64_t a = scores_desc->dims[3];
+  const int64_t n = scores_desc->getDimIndex(0);
+  const int64_t h = scores_desc->getDimIndex(1);
+  const int64_t w = scores_desc->getDimIndex(2);
+  const int64_t a = scores_desc->getDimIndex(3);
   const int64_t hwa = h * w * a;
   if (handle->arch >= 592) {
     DEFINE_CREATE_AND_SET_CNNL_HANDLE(handle, cnnl_handle);
@@ -213,7 +213,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetGenerateProposalsV2WorkspaceSize_v2(
     CALL_CNNL(cnnlDestroyTensorDescriptor(sorted_index_desc));
     DESTROY_CNNL_HANDLE(cnnl_handle);
     size_t data_size = 0;
-    mluOpGetSizeOfDataType(scores_desc->dtype, &data_size);
+    mluOpGetSizeOfDataType(scores_desc->getDtype(), &data_size);
 
     const size_t topk_workspace_size_align =
         PAD_UP(topk_workspace_size, GDRAM_ALIGN_SIZE);
@@ -263,77 +263,89 @@ mluOpStatus_t MLUOP_WIN_API mluOpGenerateProposalsV2(
   PARAM_CHECK(API, rpn_rois_num_desc != NULL);
 
   // check inputs/outputs data type
-  PARAM_CHECK(API, scores_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, bbox_deltas_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, im_shape_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, anchors_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, variances_desc->dtype == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, scores_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, bbox_deltas_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, im_shape_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, anchors_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, variances_desc->getDtype() == MLUOP_DTYPE_FLOAT);
 
-  PARAM_CHECK(API, rpn_rois_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, rpn_roi_probs_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(API, rpn_rois_num_desc->dtype == MLUOP_DTYPE_INT32);
+  PARAM_CHECK(API, rpn_rois_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, rpn_roi_probs_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(API, rpn_rois_num_desc->getDtype() == MLUOP_DTYPE_INT32);
 
   // check inputs layout
-  PARAM_CHECK(API, scores_desc->layout == MLUOP_LAYOUT_ARRAY);
-  PARAM_CHECK(API, bbox_deltas_desc->layout == MLUOP_LAYOUT_ARRAY);
-  PARAM_CHECK(API, im_shape_desc->layout == MLUOP_LAYOUT_ARRAY);
-  PARAM_CHECK(API, anchors_desc->layout == MLUOP_LAYOUT_ARRAY);
-  PARAM_CHECK(API, variances_desc->layout == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, scores_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, bbox_deltas_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, im_shape_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, anchors_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, variances_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
 
-  PARAM_CHECK(API, rpn_rois_desc->layout == MLUOP_LAYOUT_ARRAY);
-  PARAM_CHECK(API, rpn_roi_probs_desc->layout == MLUOP_LAYOUT_ARRAY);
-  PARAM_CHECK(API, rpn_rois_num_desc->layout == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, rpn_rois_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, rpn_roi_probs_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
+  PARAM_CHECK(API, rpn_rois_num_desc->getLayout() == MLUOP_LAYOUT_ARRAY);
 
   // check inputs shape
-  PARAM_CHECK_EQ(API, scores_desc->dim, 4);
-  const int64_t n = scores_desc->dims[0];
-  const int64_t h = scores_desc->dims[1];
-  const int64_t w = scores_desc->dims[2];
-  const int64_t a = scores_desc->dims[3];
+  PARAM_CHECK_EQ(API, scores_desc->getDim(), 4);
+  const int64_t n = scores_desc->getDimIndex(0);
+  const int64_t h = scores_desc->getDimIndex(1);
+  const int64_t w = scores_desc->getDimIndex(2);
+  const int64_t a = scores_desc->getDimIndex(3);
 
   // [N,H,W,A4]
-  PARAM_CHECK_EQ(API, bbox_deltas_desc->dim, 4);
-  PARAM_CHECK_EQ(API, bbox_deltas_desc->dims[0], scores_desc->dims[0]);
-  PARAM_CHECK_EQ(API, bbox_deltas_desc->dims[1], scores_desc->dims[1]);
-  PARAM_CHECK_EQ(API, bbox_deltas_desc->dims[2], scores_desc->dims[2]);
-  PARAM_CHECK_EQ(API, bbox_deltas_desc->dims[3], 4 * scores_desc->dims[3]);
+  PARAM_CHECK_EQ(API, bbox_deltas_desc->getDim(), 4);
+  PARAM_CHECK_EQ(API, bbox_deltas_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(0));
+  PARAM_CHECK_EQ(API, bbox_deltas_desc->getDimIndex(1),
+                 scores_desc->getDimIndex(1));
+  PARAM_CHECK_EQ(API, bbox_deltas_desc->getDimIndex(2),
+                 scores_desc->getDimIndex(2));
+  PARAM_CHECK_EQ(API, bbox_deltas_desc->getDimIndex(3),
+                 4 * scores_desc->getDimIndex(3));
 
   // [N, 2]
-  PARAM_CHECK_EQ(API, im_shape_desc->dim, 2);
-  PARAM_CHECK_EQ(API, im_shape_desc->dims[0], scores_desc->dims[0]);
-  PARAM_CHECK_EQ(API, im_shape_desc->dims[1], 2);
+  PARAM_CHECK_EQ(API, im_shape_desc->getDim(), 2);
+  PARAM_CHECK_EQ(API, im_shape_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(0));
+  PARAM_CHECK_EQ(API, im_shape_desc->getDimIndex(1), 2);
 
   // [H, W, A, 4]
-  PARAM_CHECK_EQ(API, anchors_desc->dim, 4);
-  PARAM_CHECK_EQ(API, anchors_desc->dims[0], scores_desc->dims[1]);
-  PARAM_CHECK_EQ(API, anchors_desc->dims[1], scores_desc->dims[2]);
-  PARAM_CHECK_EQ(API, anchors_desc->dims[2], scores_desc->dims[3]);
-  PARAM_CHECK_EQ(API, anchors_desc->dims[3], 4);
+  PARAM_CHECK_EQ(API, anchors_desc->getDim(), 4);
+  PARAM_CHECK_EQ(API, anchors_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(1));
+  PARAM_CHECK_EQ(API, anchors_desc->getDimIndex(1),
+                 scores_desc->getDimIndex(2));
+  PARAM_CHECK_EQ(API, anchors_desc->getDimIndex(2),
+                 scores_desc->getDimIndex(3));
+  PARAM_CHECK_EQ(API, anchors_desc->getDimIndex(3), 4);
 
   // [H, W, A, 4]
-  PARAM_CHECK_EQ(API, variances_desc->dim, 4);
-  PARAM_CHECK_EQ(API, variances_desc->dims[0], scores_desc->dims[1]);
-  PARAM_CHECK_EQ(API, variances_desc->dims[1], scores_desc->dims[2]);
-  PARAM_CHECK_EQ(API, variances_desc->dims[2], scores_desc->dims[3]);
-  PARAM_CHECK_EQ(API, variances_desc->dims[3], 4);
+  PARAM_CHECK_EQ(API, variances_desc->getDim(), 4);
+  PARAM_CHECK_EQ(API, variances_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(1));
+  PARAM_CHECK_EQ(API, variances_desc->getDimIndex(1),
+                 scores_desc->getDimIndex(2));
+  PARAM_CHECK_EQ(API, variances_desc->getDimIndex(2),
+                 scores_desc->getDimIndex(3));
+  PARAM_CHECK_EQ(API, variances_desc->getDimIndex(3), 4);
 
   // check output shape
-  PARAM_CHECK_EQ(API, rpn_rois_desc->dim, 2);
-  PARAM_CHECK_EQ(API, rpn_rois_desc->dims[0],
-                 scores_desc->dims[0] * post_nms_top_n);
-  PARAM_CHECK_EQ(API, rpn_rois_desc->dims[1], 4);
+  PARAM_CHECK_EQ(API, rpn_rois_desc->getDim(), 2);
+  PARAM_CHECK_EQ(API, rpn_rois_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(0) * post_nms_top_n);
+  PARAM_CHECK_EQ(API, rpn_rois_desc->getDimIndex(1), 4);
 
-  PARAM_CHECK_EQ(API, rpn_roi_probs_desc->dim, 2);
-  PARAM_CHECK_EQ(API, rpn_roi_probs_desc->dims[0],
-                 scores_desc->dims[0] * post_nms_top_n);
-  PARAM_CHECK_EQ(API, rpn_roi_probs_desc->dims[1], 1);
+  PARAM_CHECK_EQ(API, rpn_roi_probs_desc->getDim(), 2);
+  PARAM_CHECK_EQ(API, rpn_roi_probs_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(0) * post_nms_top_n);
+  PARAM_CHECK_EQ(API, rpn_roi_probs_desc->getDimIndex(1), 1);
 
-  PARAM_CHECK_EQ(API, rpn_rois_num_desc->dim, 1);
-  PARAM_CHECK_EQ(API, rpn_rois_num_desc->dims[0], scores_desc->dims[0]);
+  PARAM_CHECK_EQ(API, rpn_rois_num_desc->getDim(), 1);
+  PARAM_CHECK_EQ(API, rpn_rois_num_desc->getDimIndex(0),
+                 scores_desc->getDimIndex(0));
 
-  PARAM_CHECK_NE(API, scores_desc->dims[1], 0);
-  PARAM_CHECK_NE(API, scores_desc->dims[2], 0);
-  PARAM_CHECK_NE(API, scores_desc->dims[3], 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(1), 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(2), 0);
+  PARAM_CHECK_NE(API, scores_desc->getDimIndex(3), 0);
 
   // check stride
   STRIDE_TENSOR_CHECK(API + ":", scores_desc, "scores_desc must be contiguous");
@@ -429,7 +441,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpGenerateProposalsV2(
   VLOG(5) << "N : " << n;
   const size_t hwa = h * w * a;
   cnrtDim3_t k_dim;
-  cnrtJobType_t k_type;
+  cnrtFunctionType_t k_type;
   policyFunc(handle, &k_dim, &k_type, hwa);
   VLOG(5) << "Launch Kernel KernelGenerateProposalsV2 <<<k_dim: " << k_type
           << ", " << k_dim.x << ", " << k_dim.y << ", " << k_dim.z << ">>>";
@@ -472,11 +484,12 @@ mluOpStatus_t MLUOP_WIN_API mluOpGenerateProposalsV2(
     size_t tok_workspace_align_size =
         PAD_UP(topk_workspace_size, GDRAM_ALIGN_SIZE);
     size_t data_size = 0;
-    mluOpGetSizeOfDataType(scores_desc->dtype, &data_size);
+    mluOpGetSizeOfDataType(scores_desc->getDtype(), &data_size);
 
     const size_t indices_size = PAD_UP(n * max_k * data_size, GDRAM_ALIGN_SIZE);
-    void *sorted_score = (void *)((char *)workspace + tok_workspace_align_size);
-    void *sorted_index = (void *)((char *)sorted_score + indices_size);
+    void *sorted_score =
+        (void *)((int8_t *)workspace + tok_workspace_align_size);
+    void *sorted_index = (void *)((int8_t *)sorted_score + indices_size);
 
     // call cnnlTopK
     CALL_CNNL(cnnlTopKTensor_v3(
@@ -488,7 +501,7 @@ mluOpStatus_t MLUOP_WIN_API mluOpGenerateProposalsV2(
     CALL_CNNL(cnnlDestroyTensorDescriptor(sorted_score_desc));
     CALL_CNNL(cnnlDestroyTensorDescriptor(sorted_index_desc));
     DESTROY_CNNL_HANDLE(cnnl_handle);
-    void *workspace_buffer = (void *)((char *)sorted_index + indices_size);
+    void *workspace_buffer = (void *)((int8_t *)sorted_index + indices_size);
     CHECK_RETURN(
         "[mluOpGenerateProposalsV2]",
         KernelGenerateProposalsV2(

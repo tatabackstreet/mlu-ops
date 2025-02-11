@@ -25,8 +25,9 @@
 #include "core/logging.h"
 #include "kernels/kernel.h"
 #include "kernels/utils/common.h"
+#include "kernels/utils/scatter_gather.h"
 
-__nram__ char nram_buffer[MAX_NRAM_SIZE];
+__nram__ int8_t nram_buffer[MAX_NRAM_SIZE];
 
 #define BITINDEX_BYTED_ALIGNED 32
 #define MAXNUM_PERF_SUPPORT (2147483648 / 4)
@@ -79,7 +80,6 @@ __mlu_func__ void MLUKernelVoxelPoolingDefaultKernel(
     const int num_voxel_x, const int num_voxel_y, const int num_voxel_z,
     const int split_num, const int *geom_xyz, const float *input_features,
     float *output_features, int *pos_memo) {
-#if __BANG_ARCH__ >= 322
   if (__is_mpu()) {
     return;
   }
@@ -232,7 +232,6 @@ __mlu_func__ void MLUKernelVoxelPoolingDefaultKernel(
       }
     }
   }
-#endif
 }
 
 __mlu_func__ void MLUKernelVoxelPoolingStageTwoPerfKernel(
@@ -394,10 +393,11 @@ __mlu_func__ void MLUKernelVoxelPoolingStageTwoPerfKernel(
       __bang_ge_bitindex((float *)gather_mask,
                          (float *)nram_geom + point_idx_offset,
                          (float *)nram_geom_x, align_8_deal_num);
-      __gather((float *)gather_src, (float *)input_features,
-               (unsigned int *)gather_offset + point_idx_offset,
-               (void *)gather_mask, num_channels * sizeof(float), GDRAM2NRAM,
-               num_channels * sizeof(float), actual_load_num);
+      __mluop_gather<float>((float *)gather_src, (float *)input_features,
+                            (unsigned int *)gather_offset + point_idx_offset,
+                            (uint8_t *)gather_mask,
+                            num_channels * sizeof(float), GDRAM2NRAM,
+                            num_channels * sizeof(float), actual_load_num);
       for (int index = 0; index < actual_load_num; index++) {
         int output_features_pt_offset = nram_geom[point_idx_offset + index];
         if (output_features_pt_offset >= 0) {
@@ -416,7 +416,6 @@ __mlu_global__ void MLUKernelVoxelPoolingForward(
     const int num_voxel_x, const int num_voxel_y, const int num_voxel_z,
     const int *geom_xyz, const float *input_features, float *output_features,
     int *pos_memo) {
-#if __BANG_ARCH__ >= 370
   if (__is_mpu()) {
     return;
   }
@@ -435,7 +434,6 @@ __mlu_global__ void MLUKernelVoxelPoolingForward(
         num_voxel_z, split_num, geom_xyz, input_features, output_features,
         pos_memo);
   }
-#endif
 }
 
 mluOpStatus_t MLUOP_WIN_API KernelVoxelPoolingForward(

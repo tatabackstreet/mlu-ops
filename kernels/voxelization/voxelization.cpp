@@ -24,13 +24,13 @@
 
 #include <algorithm>
 
+#include "core/cnnl_helper.h"
 #include "core/context.h"
 #include "core/gen_case.h"
 #include "core/logging.h"
 #include "core/runtime/device.h"
 #include "core/tensor.h"
 #include "core/type.h"
-#include "kernels/utils/cnnl_helper.h"
 
 static void policyFuncDefault(const mluOpHandle_t handle,
                               const size_t num_points, cnrtDim3_t *k_dim,
@@ -40,7 +40,7 @@ static void policyFuncDefault(const mluOpHandle_t handle,
       std::min((num_points + k_dim->x - 1) / k_dim->x,
                (size_t)mluop::runtime::getClusterLimitCapability(handle));
   k_dim->z = 1;
-  *k_type = CNRT_FUNC_TYPE_UNION1;
+  *k_type = cnrtFuncTypeUnion1;
 }
 
 static void policyFuncCalcPointsPerVoxel(const mluOpHandle_t handle,
@@ -50,7 +50,7 @@ static void policyFuncCalcPointsPerVoxel(const mluOpHandle_t handle,
   k_dim->x = 1;
   k_dim->y = 1;
   k_dim->z = 1;
-  *k_type = CNRT_FUNC_TYPE_BLOCK;
+  *k_type = cnrtFuncTypeBlock;
 }
 
 mluOpStatus_t voxelizationParamCheck(
@@ -72,30 +72,34 @@ mluOpStatus_t voxelizationParamCheck(
   if (deterministic == true) {
     // check tensor shape
     // params points: [num_points, num_features]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", points_desc->dim, 2);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", points_desc->getDim(), 2);
     // params voxel_size: [3]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_size_desc->dim, 1);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_size_desc->dims[0], 3);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_size_desc->getDim(), 1);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_size_desc->getDimIndex(0), 3);
     // params coors_range: [6]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_range_desc->dim, 1);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_range_desc->dims[0], 6);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_range_desc->getDim(), 1);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_range_desc->getDimIndex(0), 6);
     // params voxels: [max_voxels, max_points, num_features]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->dim, 3);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->dims[0], max_voxels);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->dims[1], max_points);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->dims[2],
-                   points_desc->dims[1]);
-    // params coors: [max_voxels, 3]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_desc->dim, 2);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_desc->dims[0], max_voxels);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_desc->dims[1], 3);
-    // params num_points_per_voxel: [max_voxels]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", num_points_per_voxel_desc->dim, 1);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", num_points_per_voxel_desc->dims[0],
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->getDim(), 3);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->getDimIndex(0),
                    max_voxels);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->getDimIndex(1),
+                   max_points);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxels_desc->getDimIndex(2),
+                   points_desc->getDimIndex(1));
+    // params coors: [max_voxels, 3]
+    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_desc->getDim(), 2);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_desc->getDimIndex(0),
+                   max_voxels);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", coors_desc->getDimIndex(1), 3);
+    // params num_points_per_voxel: [max_voxels]
+    PARAM_CHECK_EQ("[mluOpVoxelization]", num_points_per_voxel_desc->getDim(),
+                   1);
+    PARAM_CHECK_EQ("[mluOpVoxelization]",
+                   num_points_per_voxel_desc->getDimIndex(0), max_voxels);
     // params voxel_num: [1]
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_num_desc->dim, 1);
-    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_num_desc->dims[0], 1);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_num_desc->getDim(), 1);
+    PARAM_CHECK_EQ("[mluOpVoxelization]", voxel_num_desc->getDimIndex(0), 1);
 
     // check params
     PARAM_CHECK_EQ("[mluOpVoxelization]", NDim, 3);
@@ -117,17 +121,20 @@ mluOpStatus_t voxelizationParamCheck(
                         "voxel_num_desc must be contiguous");
 
     // check tensor datatype
-    PARAM_CHECK("[mluOpVoxelization]", points_desc->dtype == MLUOP_DTYPE_FLOAT);
     PARAM_CHECK("[mluOpVoxelization]",
-                voxel_size_desc->dtype == MLUOP_DTYPE_FLOAT);
+                points_desc->getDtype() == MLUOP_DTYPE_FLOAT);
     PARAM_CHECK("[mluOpVoxelization]",
-                coors_range_desc->dtype == MLUOP_DTYPE_FLOAT);
-    PARAM_CHECK("[mluOpVoxelization]", voxels_desc->dtype == MLUOP_DTYPE_FLOAT);
-    PARAM_CHECK("[mluOpVoxelization]", coors_desc->dtype == MLUOP_DTYPE_INT32);
+                voxel_size_desc->getDtype() == MLUOP_DTYPE_FLOAT);
     PARAM_CHECK("[mluOpVoxelization]",
-                num_points_per_voxel_desc->dtype == MLUOP_DTYPE_INT32);
+                coors_range_desc->getDtype() == MLUOP_DTYPE_FLOAT);
     PARAM_CHECK("[mluOpVoxelization]",
-                voxel_num_desc->dtype == MLUOP_DTYPE_INT32);
+                voxels_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+    PARAM_CHECK("[mluOpVoxelization]",
+                coors_desc->getDtype() == MLUOP_DTYPE_INT32);
+    PARAM_CHECK("[mluOpVoxelization]",
+                num_points_per_voxel_desc->getDtype() == MLUOP_DTYPE_INT32);
+    PARAM_CHECK("[mluOpVoxelization]",
+                voxel_num_desc->getDtype() == MLUOP_DTYPE_INT32);
 
     size_t points_element_num = mluOpGetTensorElementNum(points_desc);
     size_t voxel_size_element_num = mluOpGetTensorElementNum(voxel_size_desc);
@@ -206,8 +213,8 @@ mluOpStatus_t MLUOP_WIN_API mluOpGetVoxelizationWorkspaceSize(
     return MLUOP_STATUS_SUCCESS;
   }
 
-  const size_t num_points = points_desc->dims[0];
-  const size_t num_features = points_desc->dims[1];
+  const size_t num_points = points_desc->getDimIndex(0);
+  const size_t num_features = points_desc->getDimIndex(1);
   const size_t temp_coors_size = 3 * num_points * sizeof(int32_t);
   const size_t point_to_pointidx_size = num_points * sizeof(int32_t);
   const size_t point_to_voxelidx_size = num_points * sizeof(int32_t);
@@ -277,20 +284,20 @@ mluOpStatus_t MLUOP_WIN_API mluOpVoxelization(
     GEN_CASE_TEST_PARAM_NEW(false, false, true, 0, 0, 0);
   }
 
-  const size_t num_points = points_desc->dims[0];
-  const size_t num_features = points_desc->dims[1];
+  const size_t num_points = points_desc->getDimIndex(0);
+  const size_t num_features = points_desc->getDimIndex(1);
 
   // temp_coors : [3, num_points]
   void *temp_coors = workspace;
   // point_to_pointidx : [num_points]
   void *point_to_pointidx =
-      (char *)temp_coors + num_points * 3 * sizeof(int32_t);
+      (int8_t *)temp_coors + num_points * 3 * sizeof(int32_t);
   // point_to_voxelidx : [num_points]
   void *point_to_voxelidx =
-      (char *)point_to_pointidx + num_points * sizeof(int32_t);
+      (int8_t *)point_to_pointidx + num_points * sizeof(int32_t);
   // coor_to_voxelidx : [num_points]
   void *coor_to_voxelidx =
-      (char *)point_to_voxelidx + num_points * sizeof(int32_t);
+      (int8_t *)point_to_voxelidx + num_points * sizeof(int32_t);
 
   cnrtDim3_t k_dim;
   cnrtFunctionType_t k_type;

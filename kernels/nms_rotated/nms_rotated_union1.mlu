@@ -32,7 +32,7 @@
 #define INFINITY (340282346638528859811704183484516925440.000000)
 #endif
 
-__mlu_shared__ char sram_buffer[SIZE_SRAM_BUF];
+__mlu_shared__ int8_t sram_buffer[SIZE_SRAM_BUF];
 
 template <typename IN_DT, typename OUT_DT>
 __mlu_func__ void nms_detection(
@@ -42,7 +42,9 @@ __mlu_func__ void nms_detection(
     mluMemcpyDirection_t scores_load_dir, mluMemcpyDirection_t scores_store_dir,
     mluMemcpyDirection_t boxes_load_dir, void *exit) {
   int32_t *exit_flag = (int32_t *)exit;
-  exit_flag[0] = 0;
+  if (taskId == 0) {
+    exit_flag[0] = 0;
+  }
   // temp nram buffer to store selected target.
   int nram_save_limit_count = 256;
   int32_t nram_save_count = 0;
@@ -137,7 +139,7 @@ __mlu_func__ void nms_detection(
       (IN_DT *)((float *)box2 + SINGLE_BOX_DIM * max_seg_iou_pad);
 
   // reuse memory from dist_ram
-  void *rotated_pts1_x = (char *)dist_ram;
+  void *rotated_pts1_x = (int8_t *)dist_ram;
   void *rotated_pts1_y = (float *)rotated_pts1_x + 4 * max_seg_iou_pad;
   void *rotated_pts2_x = (float *)rotated_pts1_y + 4 * max_seg_iou_pad;
   void *rotated_pts2_y = (float *)rotated_pts2_x + 4 * max_seg_iou_pad;
@@ -148,7 +150,8 @@ __mlu_func__ void nms_detection(
   void *vec2_y = (float *)vec2_x + 4 * max_seg_iou_pad;
 
   // First, initialize ram with all 0, or could cause nan/inf unexcepted results
-  __bang_write_zero((unsigned char *)score, copies_of_nram * max_seg_iou_pad);
+  __bang_write_value((uint8_t *)score, copies_of_nram * max_seg_iou_pad,
+                     (uint8_t)0);
 
   for (int keep = 0; keep < input_box_num; keep++) {
     __sync_cluster();
@@ -206,19 +209,18 @@ __mlu_func__ void nms_detection(
 
     if (nram_save_count == nram_save_limit_count) {
       if (taskId == 0) {
-        pvLock();
         __memcpy(output_data, nram_save, nram_save_count * sizeof(OUT_DT),
                  NRAM2GDRAM);
-        pvUnlock();
       }
       output_data += nram_save_count;
       nram_save_count = 0;
     }
 
     // suppress max_box's score as -inf
-    if (!__is_mpu()) {
-      input_data_score[global_max_index] = IN_DT(-INFINITY);
+    if (!__is_mpu() && taskId == 0) {
+      storeGpr(input_data_score + global_max_index, IN_DT(-INFINITY));
     }
+    __sync_all_ipu_within_cluster();
 
     // prepare box1, also is the max_box
     // x
@@ -235,7 +237,7 @@ __mlu_func__ void nms_detection(
     // angle
     if (!__is_mpu()) {
       __bang_write_value((float *)box1 + 4 * max_seg_iou_pad, max_seg_iou_pad,
-                         float(input_angle_ptr[global_max_index]));
+                         (float)loadGpr(input_angle_ptr + global_max_index));
     }
 
     // box1 5xN
@@ -269,7 +271,8 @@ __mlu_func__ void nms_detection(
       // Initialize valid_box, set actual_box_num boxes to 1, else set to 0
       __bang_write_value(((float *)valid_box), seg_len, 1.0f);
       if (cpy_len < seg_len) {
-        __bang_write_zero((float *)valid_box + cpy_len, seg_len - cpy_len);
+        __bang_write_value((float *)valid_box + cpy_len, seg_len - cpy_len,
+                           (float)0);
       }
 
       // Each box data: x, y, w, h, a
@@ -322,8 +325,8 @@ __mlu_func__ void nms_detection(
                          (float *)temp3_ram, (float *)temp4_ram, seg_len);
 
       // initialize valid_pts, nums_in
-      __bang_write_zero((float *)valid_pts, 24 * seg_len);
-      __bang_write_zero((float *)nums_in_ram, seg_len);
+      __bang_write_value((float *)valid_pts, 24 * seg_len, (float)0);
+      __bang_write_value((float *)nums_in_ram, seg_len, (float)0);
 
       // 3. Get all intersection points
       getIntersectionPoints(
@@ -370,9 +373,9 @@ __mlu_func__ void nms_detection(
                       (float *)temp10_ram, (float *)temp1_ram,
                       (float *)temp2_ram, /*mode=*/0, seg_len);
       __bang_float2int32((int32_t *)temp9_ram, (float *)temp9_ram, seg_len, 0);
-      __bang_lut_s32((int32_t *)temp9_ram, (int32_t *)temp9_ram,
-                     (int32_t *)table_float, seg_len, TABLE_LENGTH);
-      __bang_band((char *)temp2_ram, (char *)temp2_ram, (char *)temp9_ram,
+      __bang_lut((int32_t *)temp9_ram, (uint32_t *)temp9_ram,
+                 (int32_t *)table_float, seg_len, TABLE_LENGTH);
+      __bang_band((int8_t *)temp2_ram, (int8_t *)temp2_ram, (int8_t *)temp9_ram,
                   seg_len * sizeof(float));
       // temp1: 1 = area_I / area_U > iou_threshold, 0 = else
       __bang_gt_scalar((float *)temp1_ram, (float *)temp2_ram, iou_threshold,
@@ -409,18 +412,14 @@ __mlu_func__ void nms_detection(
       __bang_minequal((IN_DT *)score, (IN_DT *)score, (IN_DT *)temp1_ram,
                       seg_len);
 
-      pvLock();
       __memcpy(input_data_score + input_offset + i * max_seg_iou_pad, score,
                cpy_len * sizeof(IN_DT), scores_store_dir,
                cpy_len * sizeof(IN_DT), cpy_len * sizeof(IN_DT), 0);
-      pvUnlock();
     }
   }
   if (clusterId == 0 && coreId == 0 && nram_save_count) {
-    pvLock();
     __memcpy(output_data, nram_save, nram_save_count * sizeof(OUT_DT),
              NRAM2GDRAM);
-    pvUnlock();
   }
 }
 
@@ -444,36 +443,46 @@ __mlu_global__ void MLUKernelNmsRotated(const T *boxes, T *input_boxes,
   int32_t output_box_num = 0;
   int32_t cluster_score_size = box_num * sizeof(T);
   int32_t cluster_boxes_size = box_num * SINGLE_BOX_DIM * sizeof(T);
+  T *scores_data_sram = NULL;
+  T *boxes_data_sram = NULL;
 
   if (clusterDim == 1 &&
       (SIZE_SRAM_BUF - REDUCE_NUM * sizeof(T)) > cluster_score_size) {
-    scores_data = sram + REDUCE_NUM * coreDim;
+    scores_data_sram = sram + REDUCE_NUM * coreDim;
     scores_load_dir = SRAM2NRAM;
     scores_store_dir = NRAM2SRAM;
     if (__is_mpu()) {
-      __memcpy(scores_data, scores, cluster_score_size, GDRAM2SRAM);
+      __memcpy(scores_data_sram, scores, cluster_score_size, GDRAM2SRAM);
     }
   } else {
     if (taskId == 0) {
       __memcpy(scores_data, scores, cluster_score_size, GDRAM2GDRAM);
     }
   }
-
   if (clusterDim == 1 && (SIZE_SRAM_BUF - REDUCE_NUM * sizeof(T) -
                           cluster_score_size) >= cluster_boxes_size) {
     boxes_load_dir = SRAM2NRAM;
-    boxes_data = sram + REDUCE_NUM * coreDim + box_num;
+    boxes_data_sram = sram + REDUCE_NUM * coreDim + box_num;
     if (__is_mpu()) {
-      __memcpy(boxes_data, input_boxes, cluster_boxes_size, GDRAM2SRAM);
+      __memcpy(boxes_data_sram, input_boxes, cluster_boxes_size, GDRAM2SRAM);
     }
   }
   __sync_cluster();
 
-  nms_detection(output_box_num, output, scores_data, boxes_data, sram, taskDim,
-                box_num, iou_threshold, scores_load_dir, scores_store_dir,
-                boxes_load_dir, exit);
+  if (clusterDim == 1 && (SIZE_SRAM_BUF - REDUCE_NUM * sizeof(T) -
+                          cluster_score_size) >= cluster_boxes_size) {
+    nms_detection(output_box_num, output, scores_data_sram, boxes_data_sram,
+                  sram, taskDim, box_num, iou_threshold, scores_load_dir,
+                  scores_store_dir, boxes_load_dir, exit);
+  } else {
+    nms_detection(output_box_num, output, scores_data, boxes_data, sram,
+                  taskDim, box_num, iou_threshold, scores_load_dir,
+                  scores_store_dir, boxes_load_dir, exit);
+  }
 
-  result_num[0] = output_box_num;
+  if (taskId == 0) {
+    result_num[0] = output_box_num;
+  }
   // PERF_TIME_END();
 }
 

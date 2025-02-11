@@ -95,7 +95,7 @@
     cnrtGetLastError();                                            \
     kernel;                                                        \
     cnrtRet_t ret = cnrtPeekAtLastError();                         \
-    if (MLUOP_PREDICT_FALSE(CNRT_RET_SUCCESS != ret)) {            \
+    if (MLUOP_PREDICT_FALSE(cnrtSuccess != ret)) {                 \
       LOG(ERROR) << "Check failed: Found " << cnrtGetErrorStr(ret) \
                  << " after invoke kernel " #kernel;               \
       return MLUOP_STATUS_EXECUTION_FAILED;                        \
@@ -122,7 +122,7 @@
   }
 
 #define PARAM_CHECK(api, condition, ...)                                 \
-  if (!(condition)) {                                                    \
+  if MLUOP_PREDICT_FALSE (!(condition)) {                                \
     LOG(ERROR) << api << " Check failed: " #condition ". " #__VA_ARGS__; \
     return MLUOP_STATUS_BAD_PARAM;                                       \
   }
@@ -188,15 +188,15 @@
     return MLUOP_STATUS_NOT_SUPPORTED;                                        \
   }
 
-#define TENSOR_DIM_SIZE_CHECK(api, desc, max_num, reason, ...)            \
-  for (int i = 0; i < desc->dim; i++) {                                   \
-    if (!(desc->dims[i] < max_num)) {                                     \
-      LOG(ERROR) << api << " overflow max supported tensor dim size "     \
-                 << max_num - 1 << ", "                                   \
-                 << "now tensor's dims[" << i << "] is " << desc->dims[i] \
-                 << ". " << reason;                                       \
-      return MLUOP_STATUS_NOT_SUPPORTED;                                  \
-    }                                                                     \
+#define TENSOR_DIM_SIZE_CHECK(api, desc, max_num, reason, ...)        \
+  for (int i = 0; i < desc->getDim(); i++) {                          \
+    if (!(desc->getDimIndex(i) < max_num)) {                          \
+      LOG(ERROR) << api << " overflow max supported tensor dim size " \
+                 << max_num - 1 << ", "                               \
+                 << "now tensor's dims[" << i << "] is "              \
+                 << desc->getDimIndex(i) << ". " << reason;           \
+      return MLUOP_STATUS_NOT_SUPPORTED;                              \
+    }                                                                 \
   }
 
 extern bool mluop_check_large_tensor_dim_size_;
@@ -222,7 +222,8 @@ extern bool mluop_check_large_tensor_dim_size_;
   if (MLUOP_PREDICT_TRUE(desc != NULL)) {                                 \
     if (MLUOP_PREDICT_FALSE(                                              \
             MLUOP_PREDICT_TRUE(0 != mluOpGetTensorElementNum(desc)) &&    \
-            isStrideTensor(desc->dim, desc->dims, desc->strides))) {      \
+            isStrideTensor(desc->getDim(), desc->getDims(),               \
+                           desc->getStrides()))) {                        \
       LOG(ERROR) << api << " stride tensor is not supported. " << reason; \
       return MLUOP_STATUS_NOT_SUPPORTED;                                  \
     }                                                                     \

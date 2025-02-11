@@ -24,19 +24,19 @@
 
 #include <string>
 
+#include "core/cnnl_helper.h"
 #include "core/context.h"
 #include "core/gen_case.h"
 #include "core/logging.h"
 #include "core/runtime/device.h"
 #include "core/tensor.h"
 #include "core/type.h"
-#include "kernels/utils/cnnl_helper.h"
 
 static void policyFunc(const mluOpHandle_t handle, const int num_points_total,
                        cnrtDim3_t *k_dim, cnrtFunctionType_t *k_type) {
   uint32_t cluster_num = mluop::runtime::getClusterLimitCapability(handle);
   uint32_t core_in_cluster = handle->core_num_per_cluster;
-  *k_type = CNRT_FUNC_TYPE_UNION1;
+  *k_type = cnrtFuncTypeUnion1;
   k_dim->x = core_in_cluster;
   uint32_t use_cluster =
       (num_points_total + core_in_cluster - 1) / core_in_cluster;
@@ -61,28 +61,28 @@ mluOpStatus_t VoxelPoolingForwardParamCheck(
   PARAM_CHECK(op_name, output_features_desc != NULL);
   PARAM_CHECK(op_name, pos_memo_desc != NULL);
   // check data type
-  PARAM_CHECK(op_name, geom_xyz_desc->dtype == MLUOP_DTYPE_INT32);
-  PARAM_CHECK(op_name, input_features_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(op_name, output_features_desc->dtype == MLUOP_DTYPE_FLOAT);
-  PARAM_CHECK(op_name, pos_memo_desc->dtype == MLUOP_DTYPE_INT32);
+  PARAM_CHECK(op_name, geom_xyz_desc->getDtype() == MLUOP_DTYPE_INT32);
+  PARAM_CHECK(op_name, input_features_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(op_name, output_features_desc->getDtype() == MLUOP_DTYPE_FLOAT);
+  PARAM_CHECK(op_name, pos_memo_desc->getDtype() == MLUOP_DTYPE_INT32);
   // check tensor dims and shape
-  PARAM_CHECK(op_name, geom_xyz_desc->dim == 3);
-  PARAM_CHECK(op_name, input_features_desc->dim == 3);
-  PARAM_CHECK(op_name, output_features_desc->dim == 4);
-  PARAM_CHECK(op_name, pos_memo_desc->dim == 3);
-  PARAM_CHECK(op_name, geom_xyz_desc->dims[0] == batch_size);
-  PARAM_CHECK(op_name, geom_xyz_desc->dims[1] == num_points);
-  PARAM_CHECK(op_name, geom_xyz_desc->dims[2] == 3);
-  PARAM_CHECK(op_name, input_features_desc->dims[0] == batch_size);
-  PARAM_CHECK(op_name, input_features_desc->dims[1] == num_points);
-  PARAM_CHECK(op_name, input_features_desc->dims[2] == num_channels);
-  PARAM_CHECK(op_name, output_features_desc->dims[0] == batch_size);
-  PARAM_CHECK(op_name, output_features_desc->dims[1] == num_voxel_y);
-  PARAM_CHECK(op_name, output_features_desc->dims[2] == num_voxel_x);
-  PARAM_CHECK(op_name, output_features_desc->dims[3] == num_channels);
-  PARAM_CHECK(op_name, pos_memo_desc->dims[0] == batch_size);
-  PARAM_CHECK(op_name, pos_memo_desc->dims[1] == num_points);
-  PARAM_CHECK(op_name, pos_memo_desc->dims[2] == 3);
+  PARAM_CHECK(op_name, geom_xyz_desc->getDim() == 3);
+  PARAM_CHECK(op_name, input_features_desc->getDim() == 3);
+  PARAM_CHECK(op_name, output_features_desc->getDim() == 4);
+  PARAM_CHECK(op_name, pos_memo_desc->getDim() == 3);
+  PARAM_CHECK(op_name, geom_xyz_desc->getDimIndex(0) == batch_size);
+  PARAM_CHECK(op_name, geom_xyz_desc->getDimIndex(1) == num_points);
+  PARAM_CHECK(op_name, geom_xyz_desc->getDimIndex(2) == 3);
+  PARAM_CHECK(op_name, input_features_desc->getDimIndex(0) == batch_size);
+  PARAM_CHECK(op_name, input_features_desc->getDimIndex(1) == num_points);
+  PARAM_CHECK(op_name, input_features_desc->getDimIndex(2) == num_channels);
+  PARAM_CHECK(op_name, output_features_desc->getDimIndex(0) == batch_size);
+  PARAM_CHECK(op_name, output_features_desc->getDimIndex(1) == num_voxel_y);
+  PARAM_CHECK(op_name, output_features_desc->getDimIndex(2) == num_voxel_x);
+  PARAM_CHECK(op_name, output_features_desc->getDimIndex(3) == num_channels);
+  PARAM_CHECK(op_name, pos_memo_desc->getDimIndex(0) == batch_size);
+  PARAM_CHECK(op_name, pos_memo_desc->getDimIndex(1) == num_points);
+  PARAM_CHECK(op_name, pos_memo_desc->getDimIndex(2) == 3);
   // check dim prams
   PARAM_CHECK(op_name, batch_size > 0);
   PARAM_CHECK(op_name, num_points > 0);

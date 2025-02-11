@@ -25,8 +25,8 @@
 #define PROPOSAL_NRAM_SIZE MAX_NRAM_SIZE
 #define CALC_AREA_NRAM_FLT_CAP CALC_AREA_NRAM_SIZE / sizeof(float)
 
-__nram__ char nram_buffer[PROPOSAL_NRAM_SIZE];
-__mlu_shared__ char sram_buffer[MAX_SRAM_SIZE];
+__nram__ int8_t nram_buffer[PROPOSAL_NRAM_SIZE];
+__mlu_shared__ int8_t sram_buffer[MAX_SRAM_SIZE];
 
 #define FLOAT_MIN_GPV2 (-(float)FLT_MAX)
 
@@ -151,14 +151,12 @@ __mlu_func__ void storeResult(T *max_box, T *nram_save, T *&output_boxes_tmp,
         (float(max_box[0]) <= FLOAT_MIN_GPV2) || keep == nms_num - 1) {
       if (nram_save_count != 0) {
         if (clusterId == 0 && coreId == 0) {
-          pvLock();
           // x1, y1, x2, y2
           __memcpy(output_boxes_tmp, nram_save + 1, 4 * sizeof(T), NRAM2GDRAM,
                    4 * sizeof(T), 5 * sizeof(T), nram_save_count - 1);
           // score
           __memcpy(output_scores_tmp, nram_save, sizeof(T), NRAM2GDRAM,
                    sizeof(T), 5 * sizeof(T), nram_save_count - 1);
-          pvUnlock();
           output_boxes_tmp += nram_save_count * 4;
           output_scores_tmp += nram_save_count;
           nram_save_count = 0;
@@ -311,7 +309,7 @@ __mlu_func__ void nonMaximumSuppress(
 
   // inter_y1| inter_x2 | inter_y2 |
   // |   N   |   N      |   N      |
-  int32_t *loop_end_flag = (int32_t *)(sram_buffer + 28);
+  int32_t *loop_end_flag = (int32_t *)(sram_buffer + 128);
   loop_end_flag[0] = 0;
   // scores, boxes, x1, y1, x2, y2, inter_x1, inter_y1, inter_x2, inter_y2
   const int memory_block = 13;
@@ -331,9 +329,9 @@ __mlu_func__ void nonMaximumSuppress(
   int core_num = 0;
   int nram_save_count = 0;
 
-  limit =
-      (MAX_NRAM_SIZE - NFU_ALIGN_SIZE - nram_save_limit_count * sizeof(T) * 5) /
-      memory_block;
+  limit = (MAX_NRAM_SIZE - NFU_ALIGN_SIZE * sizeof(T) -
+           nram_save_limit_count * sizeof(T) * 5) /
+          memory_block;
   getComputeParams(scores_num, limit, memory_block, sizeof(T), &max_seg_num,
                    &repeat, &remain_num, &core_num, &core_offset);
   // init nram ptr

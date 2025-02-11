@@ -27,7 +27,7 @@
 
 #define MIN_LOG_DIFF_FLOAT -15.9423847198486328125f
 
-__nram__ char nram_buffer[MAX_NRAM_SIZE];
+__nram__ int8_t nram_buffer[MAX_NRAM_SIZE];
 
 __mlu_func__ void logAddVector(float *dst, float *src1, float *src2,
                                float *max_value, float *mask, float *temp,
@@ -41,9 +41,8 @@ __mlu_func__ void logAddVector(float *dst, float *src1, float *src2,
       "fuse.nram.s32 [%[dst]], %[size], [%[src0]],"
       ".and(%[src1]), .ge(%[src2]), .mul(%[src3]),"
       ".and([%[src4]]);\n" ::[dst] "r"((int32_t *)temp),
-      [ size ] "r"(data_num), [ src0 ] "r"((int32_t *)src1),
-      [ src1 ] "r"(0x7fffffff), [ src2 ] "r"(0x7f800001), [ src3 ] "r"(-1),
-      [ src4 ] "r"((int32_t *)src1));
+      [size] "r"(data_num), [src0] "r"((int32_t *)src1), [src1] "r"(0x7fffffff),
+      [src2] "r"(0x7f800001), [src3] "r"(-1), [src4] "r"((int32_t *)src1));
   __bang_add(max_value, max_value, temp, data_num);
 
   // Compute log sum exp: max_value + log1p(exp(min_value - max_value))
@@ -59,15 +58,16 @@ __mlu_func__ void logAddVector(float *dst, float *src1, float *src2,
   __asm__ volatile(
       "fuse.nram.s32 [%[dst]], %[size], [%[src0]],"
       ".eq(%[src1]), .mul(%[src2]);\n" ::[dst] "r"((int32_t *)mask),
-      [ size ] "r"(data_num), [ src0 ] "r"((int32_t *)mask),
-      [ src1 ] "r"(0x3f800000), [ src2 ] "r"(-1));
-  __bang_band((char *)dst, (char *)dst, (char *)mask, data_num * sizeof(float));
+      [size] "r"(data_num), [src0] "r"((int32_t *)mask), [src1] "r"(0x3f800000),
+      [src2] "r"(-1));
+  __bang_band((int8_t *)dst, (int8_t *)dst, (int8_t *)mask,
+              data_num * sizeof(float));
 
   // Reverse the mask bits, ((int)mask+1)*(-1), 0->-1, -1->0
   __bang_fusion(FUSION_FAM, (int *)mask, (int *)mask, 1, -1, data_num);
-  __bang_band((char *)max_value, (char *)max_value, (char *)mask,
+  __bang_band((int8_t *)max_value, (int8_t *)max_value, (int8_t *)mask,
               data_num * sizeof(float));
   __bang_add(dst, dst, max_value, data_num);
 }
 
-#endif  // KERNELS_MUTUAL_INFORMATION_FORWARD_MUTUAL_INFORMATION_FORWARD_UTILS_H_  // NOLINT
+#endif  // KERNELS_MUTUAL_INFORMATION_FORWARD_MUTUAL_INFORMATION_FORWARD_UTILS_H_ // NOLINT

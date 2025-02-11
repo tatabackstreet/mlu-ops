@@ -35,7 +35,7 @@
 #define ROI_OFFSET 6
 #define SAMPLING_NUM 4
 
-__nram__ char nram_buffer[MAX_NRAM_SIZE];
+__nram__ int8_t nram_buffer[MAX_NRAM_SIZE];
 
 template <typename T>
 __mlu_func__ void swap(T &a, T &b) {
@@ -59,8 +59,8 @@ __mlu_func__ void bilinearInterpolate(const int input_height,
   if (y <= 0) y = (T)0;
   if (x <= 0) x = (T)0;
 
-  *y_low = __float2int((float)y);
-  *x_low = __float2int((float)x);
+  *y_low = __float2int32((float)y);
+  *x_low = __float2int32((float)x);
 
   if (*y_low >= input_height - 1) {
     *y_high = *y_low = input_height - 1;
@@ -145,11 +145,11 @@ __mlu_global__ void roiAlignRotatedForward(
     int roi_bin_grid_h =
         (params.sample_ratio > 0)
             ? params.sample_ratio
-            : __float2int_up((float)roi_height / params.pooled_height);
+            : __float2int32_up((float)roi_height / params.pooled_height);
     int roi_bin_grid_w =
         (params.sample_ratio > 0)
             ? params.sample_ratio
-            : __float2int_up((float)roi_width / params.pooled_width);
+            : __float2int32_up((float)roi_width / params.pooled_width);
     T roi_start_y = -roi_height / 2;
     T roi_start_x = -roi_width / 2;
     const int bin_dim = __mluop_max(roi_bin_grid_h * roi_bin_grid_w, 1);
@@ -342,11 +342,11 @@ __mlu_global__ void roiAlignRotatedBackward(
     int roi_bin_grid_h =
         (params.sample_ratio > 0)
             ? params.sample_ratio
-            : __float2int_up((float)roi_height / params.pooled_height);
+            : __float2int32_up((float)roi_height / params.pooled_height);
     int roi_bin_grid_w =
         (params.sample_ratio > 0)
             ? params.sample_ratio
-            : __float2int_up((float)roi_width / params.pooled_width);
+            : __float2int32_up((float)roi_width / params.pooled_width);
     T roi_start_y = -roi_height / 2;
     T roi_start_x = -roi_width / 2;
     const int bin_dim = __mluop_max(roi_bin_grid_h * roi_bin_grid_w, 1);
@@ -449,7 +449,7 @@ __mlu_global__ void roiAlignRotatedBackward(
   }
 }
 
-mluOpStatus_t MLUOP_WIN_API KernelRoiAlignRotatedForward(
+mluOpStatus_t KernelRoiAlignRotatedForward(
     cnrtDim3_t k_dim, cnrtFunctionType_t k_type, cnrtQueue_t queue,
     mluOpDataType_t d_type, const void *features, const void *rois,
     const int batch, const int height, const int width, const int channel,
@@ -474,7 +474,7 @@ mluOpStatus_t MLUOP_WIN_API KernelRoiAlignRotatedForward(
   return MLUOP_STATUS_SUCCESS;
 }
 
-mluOpStatus_t MLUOP_WIN_API KernelRoiAlignRotatedBackward(
+mluOpStatus_t KernelRoiAlignRotatedBackward(
     cnrtDim3_t k_dim, cnrtFunctionType_t k_type, cnrtQueue_t queue,
     mluOpDataType_t d_type, const void *top_grad, const void *rois,
     const int batch, const int height, const int width, const int channel,

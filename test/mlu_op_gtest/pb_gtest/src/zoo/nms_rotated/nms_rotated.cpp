@@ -101,11 +101,11 @@ void NmsRotatedExecutor::compute() {
   auto result_num = data_vector_[3].device_ptr;
   size_t workspace_size = 0;
   size_t output_size = parser_->getMetaTensor("output1").size_in_bytes;
-  GTEST_CHECK(CNRT_RET_SUCCESS == cnrtMemset(dev_output, 0, output_size));
-  GTEST_CHECK(CNRT_RET_SUCCESS == cnrtMemset(result_num, 0, sizeof(int32_t)));
+  GTEST_CHECK(cnrtSuccess == cnrtMemset(dev_output, 0, output_size));
+  GTEST_CHECK(cnrtSuccess == cnrtMemset(result_num, 0, sizeof(int32_t)));
 
-  // GTEST_CHECK(CNRT_RET_SUCCESS == cnrtMemset(dev_output, 0,
-  //   output->dims[0] * sizeof(int64_t)));
+  // GTEST_CHECK(cnrtSuccess == cnrtMemset(dev_output, 0,
+  //   output->getDimIndex(0) * sizeof(int64_t)));
   VLOG(4) << "call mluOpNmsRotated()";
   interface_timer_.start();
   MLUOP_CHECK(mluOpGetNmsRotatedWorkspaceSize(
@@ -124,8 +124,8 @@ void NmsRotatedExecutor::cpuCompute() {
     return;
   }
 
-  auto num_box = tensor_desc_[0].tensor->dims[0];
-  auto box_dim = tensor_desc_[0].tensor->dims[1];
+  auto num_box = tensor_desc_[0].tensor->getDimIndex(0);
+  auto box_dim = tensor_desc_[0].tensor->getDimIndex(1);
   float iou_threshold =
     parser_->getProtoNode()->nms_rotated_param().iou_threshold();
 
@@ -359,7 +359,7 @@ template <typename T>
 int NmsRotatedExecutor::convexHullGraham(const Point<T> (&p)[24],
                                          const int &num_in,
                                          Point<T> (&q)[24]) {
-  assert(num_in >= 2);
+  GTEST_CHECK(num_in >= 2);
   // Step1:
   // Find point with minimum y
   // if more than 1 points have the same minimum y,

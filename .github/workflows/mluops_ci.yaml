@@ -39,7 +39,7 @@ jobs:
     strategy:
       matrix:
         runner: [mlu370-m8]
-        mlu_ops_version : [v1.3.0]
+        mlu_ops_version : [v1.5.0]
     runs-on: [yellow]
     steps:
       - uses: actions/checkout@v3
@@ -48,4 +48,4 @@ jobs:
 
       - name: run_mlu_ops_ci
         run: >
-          bash .github/ci_script/mlu-ops-ci_script.sh
+            bash .github/scripts/invoke_ci_test.sh

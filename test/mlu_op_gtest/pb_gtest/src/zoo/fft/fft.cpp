@@ -87,17 +87,13 @@ void FftExecutor::workspaceFree() {
   workspace_.clear();
 }
 
-void FftExecutor::cpuCompute() {
-  // TODO(sunhui): use fftw? librosa? OTFFT? other thrid-party library.
-}
-
 int64_t FftExecutor::getTheoryOps() {
   auto input_tensor = tensor_desc_[0].tensor;
   auto fft_param = parser_->getProtoNode()->fft_param();
   int rank = fft_param.rank();
   int bc = 1;
-  if (input_tensor->dim != rank) {
-    bc = input_tensor->dims[0];
+  if (input_tensor->getDim() != rank) {
+    bc = input_tensor->getDimIndex(0);
   }
   int n = fft_param.n(0);
 
@@ -123,14 +119,14 @@ int64_t FftExecutor::getTheoryIoSize() {
   // dtype check
   auto input_tensor = tensor_desc_[0].tensor;
   auto output_tensor = tensor_desc_[1].tensor;
-  mluOpDataType_t input_dtype = input_tensor->dtype;
-  mluOpDataType_t output_dtype = output_tensor->dtype;
+  mluOpDataType_t input_dtype = input_tensor->getDtype();
+  mluOpDataType_t output_dtype = output_tensor->getDtype();
 
   auto fft_param = parser_->getProtoNode()->fft_param();
   int rank = fft_param.rank();
   int bc = 1;
-  if (input_tensor->dim != rank) {
-    bc = input_tensor->dims[0];
+  if (input_tensor->getDim() != rank) {
+    bc = input_tensor->getDimIndex(0);
   }
   int n = fft_param.n(0);
 

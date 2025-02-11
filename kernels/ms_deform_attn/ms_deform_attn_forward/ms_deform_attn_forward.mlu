@@ -22,6 +22,7 @@
  *************************************************************************/
 #include "kernels/ms_deform_attn/ms_deform_attn_forward/ms_deform_attn_forward.h"
 
+#include "core/cnnl_helper.h"
 #include "core/context.h"
 #include "core/logging.h"
 #include "core/gen_case.h"
@@ -31,7 +32,6 @@
 #include "core/type.h"
 #include "kernels/debug.h"
 #include "kernels/kernel.h"
-#include "kernels/utils/cnnl_helper.h"
 
 typedef enum {
   /*!< Index is invalid. */
@@ -56,7 +56,7 @@ MsDeformAttnForwardPolicy msDeformAttnForwardPolicyFunc(
           mluop::runtime::getClusterLimitCapability(handle));
   k_dims->z = 1;
 
-  *k_type = CNRT_FUNC_TYPE_UNION1;
+  *k_type = cnrtFuncTypeUnion1;
 
   int32_t nlp = num_levels * num_points;
   int32_t nlpc = num_levels * num_points * channels;
@@ -84,54 +84,64 @@ static mluOpStatus_t paramcheck(
     const mluOpTensorDescriptor_t data_col_desc) {
   // check tensor dim
   // params data_value: [bs, num_keys, num_heads, channels]
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_value_desc->dim, 4);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_value_desc->getDim(), 4);
   // params data_spatial_shapes: [num_levels, 2]
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_spatial_shapes_desc->dim,
-                 2);
   PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]",
-                 data_spatial_shapes_desc->dims[1], 2);
+                 data_spatial_shapes_desc->getDim(), 2);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]",
+                 data_spatial_shapes_desc->getDimIndex(1), 2);
   // params data_level_start_index: [num_levels]
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_level_start_index_desc->dim,
-                 1);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]",
+                 data_level_start_index_desc->getDim(), 1);
   // params data_sampling_loc:
   // [bs, num_queries, num_heads, num_levels, num_points, 2]
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_sampling_loc_desc->dim, 6);
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_sampling_loc_desc->dims[5],
-                 2);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_sampling_loc_desc->getDim(),
+                 6);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]",
+                 data_sampling_loc_desc->getDimIndex(5), 2);
   // params data_attn_weight:
   // [bs, num_queries, num_heads, num_levels, num_points]
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_attn_weight_desc->dim, 5);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_attn_weight_desc->getDim(),
+                 5);
   // params data_col: [bs, num_queries, num_heads, channels]
-  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_col_desc->dim, 4);
+  PARAM_CHECK_EQ("[mluOpMsDeformAttnForward]", data_col_desc->getDim(), 4);
   // check tensor shape
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_value_desc->dims[0] == data_col_desc->dims[0]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_sampling_loc_desc->dims[0] == data_col_desc->dims[0]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_attn_weight_desc->dims[0] == data_col_desc->dims[0]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_value_desc->dims[2] == data_col_desc->dims[2]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_sampling_loc_desc->dims[2] == data_col_desc->dims[2]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_attn_weight_desc->dims[2] == data_col_desc->dims[2]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_value_desc->dims[3] == data_col_desc->dims[3]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_spatial_shapes_desc->dims[0] ==
-                  data_level_start_index_desc->dims[0]);
+              data_value_desc->getDimIndex(0) == data_col_desc->getDimIndex(0));
   PARAM_CHECK(
       "[mluOpMsDeformAttnForward]",
-      data_spatial_shapes_desc->dims[0] == data_sampling_loc_desc->dims[3]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]", data_spatial_shapes_desc->dims[0] ==
-                                                data_attn_weight_desc->dims[3]);
+      data_sampling_loc_desc->getDimIndex(0) == data_col_desc->getDimIndex(0));
+  PARAM_CHECK(
+      "[mluOpMsDeformAttnForward]",
+      data_attn_weight_desc->getDimIndex(0) == data_col_desc->getDimIndex(0));
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_sampling_loc_desc->dims[1] == data_col_desc->dims[1]);
+              data_value_desc->getDimIndex(2) == data_col_desc->getDimIndex(2));
+  PARAM_CHECK(
+      "[mluOpMsDeformAttnForward]",
+      data_sampling_loc_desc->getDimIndex(2) == data_col_desc->getDimIndex(2));
+  PARAM_CHECK(
+      "[mluOpMsDeformAttnForward]",
+      data_attn_weight_desc->getDimIndex(2) == data_col_desc->getDimIndex(2));
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_attn_weight_desc->dims[1] == data_col_desc->dims[1]);
-  PARAM_CHECK("[mluOpMsDeformAttnForward]", data_sampling_loc_desc->dims[4] ==
-                                                data_attn_weight_desc->dims[4]);
+              data_value_desc->getDimIndex(3) == data_col_desc->getDimIndex(3));
+  PARAM_CHECK("[mluOpMsDeformAttnForward]",
+              data_spatial_shapes_desc->getDimIndex(0) ==
+                  data_level_start_index_desc->getDimIndex(0));
+  PARAM_CHECK("[mluOpMsDeformAttnForward]",
+              data_spatial_shapes_desc->getDimIndex(0) ==
+                  data_sampling_loc_desc->getDimIndex(3));
+  PARAM_CHECK("[mluOpMsDeformAttnForward]",
+              data_spatial_shapes_desc->getDimIndex(0) ==
+                  data_attn_weight_desc->getDimIndex(3));
+  PARAM_CHECK(
+      "[mluOpMsDeformAttnForward]",
+      data_sampling_loc_desc->getDimIndex(1) == data_col_desc->getDimIndex(1));
+  PARAM_CHECK(
+      "[mluOpMsDeformAttnForward]",
+      data_attn_weight_desc->getDimIndex(1) == data_col_desc->getDimIndex(1));
+  PARAM_CHECK("[mluOpMsDeformAttnForward]",
+              data_sampling_loc_desc->getDimIndex(4) ==
+                  data_attn_weight_desc->getDimIndex(4));
   // check stride
   STRIDE_TENSOR_CHECK("[mluOpMsDeformAttnForward]:", data_value_desc,
                       "data_value_desc must be contiguous");
@@ -148,19 +158,19 @@ static mluOpStatus_t paramcheck(
                       "data_col_desc must be contiguous");
   // check tensor datatype
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_value_desc->dtype == MLUOP_DTYPE_FLOAT);
+              data_value_desc->getDtype() == MLUOP_DTYPE_FLOAT);
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_spatial_shapes_desc->dtype == MLUOP_DTYPE_INT32);
+              data_spatial_shapes_desc->getDtype() == MLUOP_DTYPE_INT32);
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_level_start_index_desc->dtype == MLUOP_DTYPE_INT32);
+              data_level_start_index_desc->getDtype() == MLUOP_DTYPE_INT32);
   // data_value, data_sampling_loc, data_attn_weight,
   // data_col datatype must be the same
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_value_desc->dtype == data_col_desc->dtype);
+              data_value_desc->getDtype() == data_col_desc->getDtype());
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_sampling_loc_desc->dtype == data_col_desc->dtype);
+              data_sampling_loc_desc->getDtype() == data_col_desc->getDtype());
   PARAM_CHECK("[mluOpMsDeformAttnForward]",
-              data_attn_weight_desc->dtype == data_col_desc->dtype);
+              data_attn_weight_desc->getDtype() == data_col_desc->getDtype());
   return MLUOP_STATUS_SUCCESS;
 }
 
@@ -203,13 +213,13 @@ mluOpStatus_t MLUOP_WIN_API mluOpMsDeformAttnForward(
                    LARGE_TENSOR_NUM, "");
   TENSOR_NUM_CHECK("[mluOpMsDeformAttnForward]", data_col_element_num,
                    LARGE_TENSOR_NUM, "");
-  const int32_t batch_size = data_value_desc->dims[0];
-  const int32_t num_keys = data_value_desc->dims[1];
-  const int32_t num_heads = data_value_desc->dims[2];
-  const int32_t channels = data_value_desc->dims[3];
-  const int32_t num_levels = data_spatial_shapes_desc->dims[0];
-  const int32_t num_queries = data_sampling_loc_desc->dims[1];
-  const int32_t num_points = data_sampling_loc_desc->dims[4];
+  const int32_t batch_size = data_value_desc->getDimIndex(0);
+  const int32_t num_keys = data_value_desc->getDimIndex(1);
+  const int32_t num_heads = data_value_desc->getDimIndex(2);
+  const int32_t channels = data_value_desc->getDimIndex(3);
+  const int32_t num_levels = data_spatial_shapes_desc->getDimIndex(0);
+  const int32_t num_queries = data_sampling_loc_desc->getDimIndex(1);
+  const int32_t num_points = data_sampling_loc_desc->getDimIndex(4);
   // check element num zero
   if (batch_size == 0 || num_heads == 0 || channels == 0 || num_queries == 0) {
     LOG(ERROR) << "[mluOpMsDeformAttnForward] Check failed: element num zero.";
@@ -245,12 +255,13 @@ mluOpStatus_t MLUOP_WIN_API mluOpMsDeformAttnForward(
     // set handle dump mlu output
     GEN_CASE_HANDLE(handle);
     GEN_CASE_DATA(true, "data_value", data_value, data_value_desc, 10, -10);
-    GEN_CASE_DATA(true, "data_spatial_shapes", data_spatial_shapes,
-                  data_spatial_shapes_desc, 10, -10);
-    GEN_CASE_DATA(true, "data_level_start_index", data_level_start_index,
-                  data_level_start_index_desc, 10, -10);
-    GEN_CASE_DATA(true, "data_sampling_loc", data_sampling_loc,
-                  data_sampling_loc_desc, 10, -10);
+    GEN_CASE_DATA_REAL_V2(true, "data_spatial_shapes", data_spatial_shapes,
+                          data_spatial_shapes_desc, 10, 0);
+    GEN_CASE_DATA_REAL_V2(true, "data_level_start_index",
+                          data_level_start_index, data_level_start_index_desc,
+                          10, 0);
+    GEN_CASE_DATA_REAL_V2(true, "data_sampling_loc", data_sampling_loc,
+                          data_sampling_loc_desc, 10, -10);
     GEN_CASE_DATA(true, "data_attn_weight", data_attn_weight,
                   data_attn_weight_desc, 10, -10);
     GEN_CASE_DATA(false, "data_col", data_col, data_col_desc, 0, 0);
@@ -274,32 +285,32 @@ mluOpStatus_t MLUOP_WIN_API mluOpMsDeformAttnForward(
           VLOG(5) << "Not Implemented";
           break;
         }
-        case CNRT_FUNC_TYPE_BLOCK: {
+        case cnrtFuncTypeBlock: {
           VLOG(5)
               << "Launch Kernel MLUKernelMsDeformAttnForwardDefault<<<Block, "
               << k_dims.x << ", " << k_dims.y << ", " << k_dims.z << ">>>";
           KERNEL_CHECK(
               (MLUKernelMsDeformAttnForwardDefault<float>
                <<<k_dims, k_type, handle->queue>>>(
-                   (char *)data_value, (char *)data_spatial_shapes,
-                   (char *)data_level_start_index, (char *)data_sampling_loc,
-                   (char *)data_attn_weight, batch_size, num_keys, num_heads,
-                   channels, num_levels, num_queries, num_points,
-                   (char *)data_col)));
+                   (int8_t *)data_value, (int8_t *)data_spatial_shapes,
+                   (int8_t *)data_level_start_index,
+                   (int8_t *)data_sampling_loc, (int8_t *)data_attn_weight,
+                   batch_size, num_keys, num_heads, channels, num_levels,
+                   num_queries, num_points, (int8_t *)data_col)));
           break;
         }
-        case CNRT_FUNC_TYPE_UNION1: {
+        case cnrtFuncTypeUnion1: {
           VLOG(5) << "Launch Kernel MLUKernelMsDeformAttnForwardDefault<<<Union"
                   << k_type / CORE_DIM << ", " << k_dims.x << ", " << k_dims.y
                   << ", " << k_dims.z << ">>>";
           KERNEL_CHECK(
               (MLUKernelMsDeformAttnForwardDefault<float>
                <<<k_dims, k_type, handle->queue>>>(
-                   (char *)data_value, (char *)data_spatial_shapes,
-                   (char *)data_level_start_index, (char *)data_sampling_loc,
-                   (char *)data_attn_weight, batch_size, num_keys, num_heads,
-                   channels, num_levels, num_queries, num_points,
-                   (char *)data_col)));
+                   (int8_t *)data_value, (int8_t *)data_spatial_shapes,
+                   (int8_t *)data_level_start_index,
+                   (int8_t *)data_sampling_loc, (int8_t *)data_attn_weight,
+                   batch_size, num_keys, num_heads, channels, num_levels,
+                   num_queries, num_points, (int8_t *)data_col)));
           break;
         }
       }
@@ -311,21 +322,21 @@ mluOpStatus_t MLUOP_WIN_API mluOpMsDeformAttnForward(
           VLOG(5) << "Not Implemented";
           break;
         }
-        case CNRT_FUNC_TYPE_BLOCK: {
+        case cnrtFuncTypeBlock: {
           VLOG(5) << "Launch Kernel "
                      "MLUKernelMsDeformAttnForwardSmallChannel<<<Block, "
                   << k_dims.x << ", " << k_dims.y << ", " << k_dims.z << ">>>";
           KERNEL_CHECK(
               (MLUKernelMsDeformAttnForwardSmallChannel<float>
                <<<k_dims, k_type, handle->queue>>>(
-                   (char *)data_value, (char *)data_spatial_shapes,
-                   (char *)data_level_start_index, (char *)data_sampling_loc,
-                   (char *)data_attn_weight, batch_size, num_keys, num_heads,
-                   channels, num_levels, num_queries, num_points,
-                   (char *)data_col)));
+                   (int8_t *)data_value, (int8_t *)data_spatial_shapes,
+                   (int8_t *)data_level_start_index,
+                   (int8_t *)data_sampling_loc, (int8_t *)data_attn_weight,
+                   batch_size, num_keys, num_heads, channels, num_levels,
+                   num_queries, num_points, (int8_t *)data_col)));
           break;
         }
-        case CNRT_FUNC_TYPE_UNION1: {
+        case cnrtFuncTypeUnion1: {
           VLOG(5) << "Launch Kernel "
                      "MLUKernelMsDeformAttnForwardSmallChannel<<<Union"
                   << k_type / CORE_DIM << ", " << k_dims.x << ", " << k_dims.y
@@ -333,11 +344,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpMsDeformAttnForward(
           KERNEL_CHECK(
               (MLUKernelMsDeformAttnForwardSmallChannel<float>
                <<<k_dims, k_type, handle->queue>>>(
-                   (char *)data_value, (char *)data_spatial_shapes,
-                   (char *)data_level_start_index, (char *)data_sampling_loc,
-                   (char *)data_attn_weight, batch_size, num_keys, num_heads,
-                   channels, num_levels, num_queries, num_points,
-                   (char *)data_col)));
+                   (int8_t *)data_value, (int8_t *)data_spatial_shapes,
+                   (int8_t *)data_level_start_index,
+                   (int8_t *)data_sampling_loc, (int8_t *)data_attn_weight,
+                   batch_size, num_keys, num_heads, channels, num_levels,
+                   num_queries, num_points, (int8_t *)data_col)));
           break;
         }
       }
@@ -349,11 +360,11 @@ mluOpStatus_t MLUOP_WIN_API mluOpMsDeformAttnForward(
               << ", " << k_dims.z << ">>>";
       KERNEL_CHECK((MLUKernelMsDeformAttnForwardFast<float>
                     <<<k_dims, k_type, handle->queue>>>(
-                        (char *)data_value, (char *)data_spatial_shapes,
-                        (char *)data_level_start_index,
-                        (char *)data_sampling_loc, (char *)data_attn_weight,
+                        (int8_t *)data_value, (int8_t *)data_spatial_shapes,
+                        (int8_t *)data_level_start_index,
+                        (int8_t *)data_sampling_loc, (int8_t *)data_attn_weight,
                         batch_size, num_keys, num_heads, channels, num_levels,
-                        num_queries, num_points, (char *)data_col)));
+                        num_queries, num_points, (int8_t *)data_col)));
       break;
     }
   }

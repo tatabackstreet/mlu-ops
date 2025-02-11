@@ -303,7 +303,7 @@ void points_in_boxes_kernel(int batch_size, int boxes_num, int pts_num, const fl
       X = points[0];
       Y = points[m];
       Z = points[2*m];
-      bang_write_zero(last, 0);
+      bang_write_value(last, 0, 0);
       loop boxes for t in range(boxes_num):
         boxes = b * T * 7 + t * 7;
         (cx, cy, cz, dx, dy, dz, rz) = boxes[0:7];
@@ -313,7 +313,7 @@ void points_in_boxes_kernel(int batch_size, int boxes_num, int pts_num, const fl
         __bang_mul_scalar(tmp, tmp, t+1, num);
         __bang_add(last, last, tmp, num);
       __bang_sub_scalar(last, last, -1, num);
-      __mluop_float2int(last, last, num);
+      __bang_float2int(last, last, num);
       store_async(output_addr, last);
 }
 

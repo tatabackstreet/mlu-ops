@@ -32,12 +32,10 @@ void RoiAlignBackwardExecutor::paramCheck() {
   GTEST_CHECK(parser_->getProtoNode()->has_roi_align_backward_param(),
               "mluOpRoiAlignBackward: lose param. ");
 
-  GTEST_CHECK(
-      parser_->getInputNum() == 2 || parser_->getInputNum() == 4,
-        "mluOpRoiAlignBackward: tensor input number is wrong.");
-  GTEST_CHECK(
-      parser_->getOutputNum() == 1,
-        "mluOpRoiAlignBackward: tensor output number is wrong.");
+  GTEST_CHECK(parser_->getInputNum() == 2 || parser_->getInputNum() == 4,
+              "mluOpRoiAlignBackward: tensor input number is wrong.");
+  GTEST_CHECK(parser_->getOutputNum() == 1,
+              "mluOpRoiAlignBackward: tensor output number is wrong.");
 }
 
 void RoiAlignBackwardExecutor::compute() {
@@ -161,20 +159,20 @@ void RoiAlignBackwardExecutor::cpuCompute() {
       parser_->getProtoNode()->roi_align_backward_param().pool_mode();
   int version = parser_->getProtoNode()->roi_align_backward_param().version();
 
-  size_t input_n = input_desc->dims[0];
-  size_t input_h = input_desc->dims[1];
-  size_t input_w = input_desc->dims[2];
-  size_t input_c = input_desc->dims[3];
+  size_t input_n = input_desc->getDimIndex(0);
+  size_t input_h = input_desc->getDimIndex(1);
+  size_t input_w = input_desc->getDimIndex(2);
+  size_t input_c = input_desc->getDimIndex(3);
   size_t input_offset_n = input_h * input_w * input_c;
   size_t input_offset_h = input_w * input_c;
   auto output = parser_->getMetaTensor(2).cpu_ptr;
   auto output_desc = parser_->getMetaTensor(2).tensor;
 
   if (pool_mode == 1) {
-    int output_n = output_desc->dims[0];
-    int output_h = output_desc->dims[1];
-    int output_w = output_desc->dims[2];
-    int output_c = output_desc->dims[3];
+    int output_n = output_desc->getDimIndex(0);
+    int output_h = output_desc->getDimIndex(1);
+    int output_w = output_desc->getDimIndex(2);
+    int output_c = output_desc->getDimIndex(3);
 
     std::memset(output, 0.0, parser_->getMetaTensor(2).size_in_bytes);
     size_t output_offset_n = output_h * output_w * output_c;
@@ -255,10 +253,10 @@ void RoiAlignBackwardExecutor::cpuCompute() {
     output = parser_->getMetaTensor(4).cpu_ptr;
     output_desc = parser_->getMetaTensor(4).tensor;
 
-    size_t output_n = output_desc->dims[0];
-    size_t output_h = output_desc->dims[1];
-    size_t output_w = output_desc->dims[2];
-    size_t output_c = output_desc->dims[3];
+    size_t output_n = output_desc->getDimIndex(0);
+    size_t output_h = output_desc->getDimIndex(1);
+    size_t output_w = output_desc->getDimIndex(2);
+    size_t output_c = output_desc->getDimIndex(3);
 
     size_t output_offset_n = output_h * output_w * output_c;
     size_t output_offset_h = output_w * output_c;
@@ -316,8 +314,21 @@ void RoiAlignBackwardExecutor::cpuCompute() {
 
 int64_t RoiAlignBackwardExecutor::getTheoryOps() {
   int64_t theory_ops = 0;
-
-  auto boxes = parser_->getMetaTensor(1).cpu_ptr;
+  float *host_boxes = nullptr;
+  Device device = parser_->device();
+  if (device != Device::CPU) {
+    auto boxes_desc = tensor_desc_[1].tensor;
+    auto boxes_dtype = boxes_desc->getDtype();
+    size_t boxes_num = parser_->getInputDataCount(1);
+    float *boxes_ptr =
+        (float *)cpu_runtime_.allocate(boxes_num * sizeof(float));
+    castDataOut(data_vector_[1].host_ptr, boxes_dtype, (float *)boxes_ptr,
+                MLUOP_DTYPE_FLOAT, boxes_num, NO_QUANT, 0, 1, 0);
+    host_boxes = boxes_ptr;
+  } else {
+    host_boxes = cpu_fp32_input_[1];
+  }
+  auto boxes = host_boxes;
   auto input_desc = parser_->getMetaTensor(0).tensor;
   float spatial_scale =
       parser_->getProtoNode()->roi_align_backward_param().spatial_scale();
@@ -333,11 +344,11 @@ int64_t RoiAlignBackwardExecutor::getTheoryOps() {
     output_desc = parser_->getMetaTensor(4).tensor;
   }
 
-  size_t input_n = input_desc->dims[0];
-  size_t input_h = input_desc->dims[1];
-  size_t input_w = input_desc->dims[2];
-  size_t input_c = input_desc->dims[3];
-  size_t output_n = output_desc->dims[0];
+  size_t input_n = input_desc->getDimIndex(0);
+  size_t input_h = input_desc->getDimIndex(1);
+  size_t input_w = input_desc->getDimIndex(2);
+  size_t input_c = input_desc->getDimIndex(3);
+  size_t output_n = output_desc->getDimIndex(0);
 
   for (int idx_n = 0; idx_n < input_n; idx_n++) {
     // check whether box_idx is valid

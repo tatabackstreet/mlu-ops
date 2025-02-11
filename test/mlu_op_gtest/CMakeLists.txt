@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0048 NEW) # Use project(... VERSION ...)
 project(mlu_op_test)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # check
@@ -94,6 +94,10 @@ if (NOT EXISTS ${PROTO_FILES})
   file(GLOB PROTO_FILES "${PROTO_PATH}/mlu_op_test.proto")
 endif()
 
+execute_process(
+  COMMAND python3 "merge_proto_files.py"
+  WORKING_DIRECTORY ${PROTO_PATH}
+)
 
 # protoc code
 set(PROTOBUF_PROTOC_EXECUTABLE protoc CACHE STRING "protoc command location")
@@ -155,7 +159,7 @@ add_library(gtest_shared STATIC ${SRC_DIR}) # for runtime convenience
 # #target_link_libraries(gen_half2float_table cnrt)
 add_custom_command(
  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/gen_half2float_table
- COMMAND ${BANG_CNCC_EXECUTABLE} -mavx2 -mf16c -std=c++14 -I ${CMAKE_CURRENT_SOURCE_DIR}/include -I ${NEUWARE_HOME}/include ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_half2float_table.cpp -o ${CMAKE_CURRENT_BINARY_DIR}/gen_half2float_table -L ${NEUWARE_HOME}/lib64 -lcnrt -lm -lstdc++ -Wl,-rpath=${NEUWARE_HOME}/lib64
+ COMMAND ${BANG_CNCC_EXECUTABLE} -mavx2 -mf16c -std=c++17 -I ${CMAKE_CURRENT_SOURCE_DIR}/include -I ${NEUWARE_HOME}/include ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_half2float_table.cpp -o ${CMAKE_CURRENT_BINARY_DIR}/gen_half2float_table -L ${NEUWARE_HOME}/lib64 -lcnrt -lm -lstdc++ -Wl,-rpath=${NEUWARE_HOME}/lib64
  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_half2float_table.cpp ${CMAKE_CURRENT_SOURCE_DIR}/include/math_half.h
 )
 add_custom_command(
@@ -183,11 +187,13 @@ add_library(mluop_pb_gtest_obj OBJECT ${MLUOP_PB_TEST_DIR} ${MLUOP_PB_GTEST_DIR}
 target_include_directories(mluop_pb_gtest_obj PRIVATE ${MLUOP_PB_GTEST_INCLUDE} ${PROTO_PATH})
 add_dependencies(mluop_pb_gtest_obj mluop_build_proto)
 add_executable(mluop_gtest $<TARGET_OBJECTS:mluop_pb_gtest_obj>)
+target_link_libraries(mluop_pb_gtest_obj PRIVATE fmt::fmt)
 target_link_libraries(mluop_gtest mluops)
 set(targets_mluop_gtest mluop_gtest)
 
 message(STATUS "EXTRA_LIBS: ${EXTRA_LIBS}")
 foreach(target_gtest ${targets_mluop_gtest})
+  target_link_libraries(${target_gtest} fmt::fmt)
   target_link_libraries(${target_gtest} mluop_gtest_kernels)
   target_link_libraries(${target_gtest} -Wl,--no-as-needed cnbin -Wl,--as-needed)
   target_link_libraries(${target_gtest} cnrt cndev cndrv pthread gtest_shared stdc++ m dl)

@@ -4,7 +4,9 @@ project(mluops VERSION ${BUILD_VERSION})
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
 set(EXECUTABLE_OUTPUT_PATH "${CMAKE_BINARY_DIR}/test")
 set(LIBRARY_OUTPUT_PATH "${CMAKE_BINARY_DIR}/lib")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wdeprecated-declarations -fPIC -std=c++11 -pthread -pipe")
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wdeprecated-declarations -fPIC -std=c++17 -pthread -pipe")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,--gc-sections -fPIC")
 
 ################################################################################
@@ -55,6 +57,10 @@ if(${MLUOP_BUILD_ASAN_CHECK} MATCHES "ON")
 endif()
 
 # -- BANG memcheck
+#TODO remove this option after cntoolkit upgraded to 4.0
+
+set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} --no-neuware-version-check")  # no need after toolkit 4.0
+
 if(${MLUOP_BUILD_BANG_MEMCHECK} MATCHES "ON")
   message("-- BANG memcheck enabled")
   set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} -mllvm -enable-mlisa-sanitizer")
@@ -87,9 +93,40 @@ if(NOT BANG_FOUND)
 elseif (NOT BANG_CNCC_EXECUTABLE)
   message(FATAL_ERROR "cncc not found, please ensure cncc is in your PATH env or set variable BANG_CNCC_EXECUTABLE from cmake. Otherwise you should check path used by find_program(BANG_CNCC_EXECUTABLE) in FindBANG.cmake")
 endif()
+message(STATUS "BANG_CNCC_EXECUTABLE=${BANG_CNCC_EXECUTABLE}")
+execute_process(
+  COMMAND ${BANG_CNCC_EXECUTABLE} --version
+  COMMAND head -n1
+  COMMAND awk "{print $2}"
+  COMMAND sed "s/^v//g"
+  OUTPUT_VARIABLE _cncc_version
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+message(STATUS "cncc version ${_cncc_version}")
+execute_process(
+  COMMAND echo ${_cncc_version}
+  COMMAND cut -d "." -f1
+  OUTPUT_VARIABLE _cncc_version_major
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+execute_process(
+  COMMAND echo ${_cncc_version}
+  COMMAND cut -d "." -f2
+  OUTPUT_VARIABLE _cncc_version_minor
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
 
+if (NOT "${_cncc_version}" VERSION_LESS "4.15.0")
+  set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} -mllvm --fmlu-memintr-warning=true")
+endif()
+
+if(NOT "${_cncc_version}" VERSION_LESS "4.1.0")
+  set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} -mllvm --fmlu-addrspace-warning")
+endif()
+
+find_package(fmt REQUIRED)
 # setup cncc flags
-set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} -Werror -Wdeprecated-declarations -Wall -std=c++11 -fPIC -pthread --neuware-path=${NEUWARE_HOME}")
+set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} -Werror -Wdeprecated-declarations -Wall -std=c++17 -fPIC -pthread --neuware-path=${NEUWARE_HOME}")
 if(${_CMAKE_BUILD_TYPE_LOWER} MATCHES "debug")
   message(STATUS "build debug version")
   set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS} -g3 -O0")
@@ -103,7 +140,8 @@ endif()
 if (NOT MLUOP_MLU_ARCH_LIST)
   message(STATUS "build all arch")
   set(BANG_CNCC_FLAGS "${BANG_CNCC_FLAGS}" "--bang-mlu-arch=mtp_372"
-                                           "--bang-mlu-arch=mtp_592")
+                                           "--bang-mlu-arch=mtp_592"
+                                           "--bang-mlu-arch=mtp_613")
 else()
   foreach (arch ${MLUOP_MLU_ARCH_LIST})
     set(CNCC_FLAGS_ARCH ${CNCC_FLAGS_ARCH} "--bang-mlu-arch=${arch}" )
@@ -141,7 +179,7 @@ endif()
 
 list(SORT build_kernel)
 message(STATUS "build_kernel:[${build_kernel}]")
- 
+
 file(GLOB all_kernels "${CMAKE_CURRENT_LIST_DIR}/kernels/*")
 foreach(kernel ${build_kernel} )
   set(kernel_parent_dir '')
@@ -163,7 +201,7 @@ foreach(kernel ${build_kernel} )
     continue()
   endif()
 endforeach()
- 
+
 file(GLOB_RECURSE src_helper_files ${src_helper_files} "${CMAKE_CURRENT_SOURCE_DIR}/kernels/utils/cnnl_helper.cpp")
 file(GLOB_RECURSE core_src_files ${core_src_files} "${CMAKE_CURRENT_SOURCE_DIR}/core/*.cpp")
 # set(src_files ${src_files} "${CMAKE_CURRENT_SOURCE_DIR}/test/main.cpp")
@@ -174,16 +212,24 @@ else()
   message(FATAL_ERROR "${MLUOP_SYMBOL_VIS_FILE} doesn't exist.")
 endif()
 
+
 set(LINK_FLAGS "-Wl,--version-script=${CMAKE_BINARY_DIR}/${MLUOP_SYMBOL_VIS_FILE}")
 message(STATUS "LINK_FLAGS:${LINK_FLAGS}")
 add_library(mluopscore STATIC ${core_src_files})
 
 target_link_libraries(mluopscore cnnl cnrt cndrv)
+if (TARGET fmt::fmt-header-only)
+  target_link_libraries(mluopscore fmt::fmt-header-only)
+endif()
+
 bang_add_library(mluops SHARED ${src_files} ${src_helper_files})
 
 if(${MLUOP_BUILD_STATIC} MATCHES "ON")
   message("-- Build MLUOP static")
   bang_add_library(mluops_static STATIC ${src_files} ${src_helper_files} ${core_src_files})
+  if (TARGET fmt::fmt-header-only)
+    target_link_libraries(mluops_static fmt::fmt-header-only)
+  endif()
 endif()
 
 target_link_libraries(mluops
@@ -195,6 +241,7 @@ target_link_libraries(mluops
   cnrt cndrv dl
   -Wl,--end-group
 )
+
 target_link_libraries(mluops ${LINK_FLAGS})
 set_target_properties(mluops PROPERTIES
   OUTPUT_NAME "mluops"

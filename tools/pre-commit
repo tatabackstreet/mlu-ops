@@ -65,11 +65,11 @@ echo "-- [pre-commit] Check __bang_printf or printf or std::cout or \
 assert() in kernel code..."
 for i in ${filenames} ; do
   include_mlu=$(echo $i | grep -E ".mlu|.cpp")
-  check_dir=$(echo $i | grep -E "^core\/|^kernels\/")
+  check_dir=$(echo $i | grep -E "^core\/|^kernels\/" | grep -v "^core/cnlog.cpp$")
   #not_in_tools=$(echo $i | sed -r "s/^tools.*//")
   if [[ -n "${include_mlu}" ]] && [[ -n "${check_dir}" ]]; then
     printf_log=$(sed -n -e '/\<printf\>/=' -e \
-      '/\<__bang_printf\>/=' -e '/\<std::cout\>/=' -e '/assert(/=' $i)
+      '/\<__bang_printf\>/=' -e '/\<std::cout\>/=' -e '/\bassert(/=' $i)
     for line in ${printf_log};
     do
       echo $i +${line}

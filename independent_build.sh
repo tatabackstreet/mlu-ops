@@ -5,9 +5,13 @@ SCRIPT_DIR=`dirname $0`
 BUILD_PATH=${SCRIPT_DIR}/build
 CMAKE=cmake
 MLUOP_TARGET_CPU_ARCH=`uname -m`
+
 GEN_SYMBOL_VIS_FILE_PY="./scripts/gen_symbol_visibility_map.py"
+GEN_BANGC_KERNELS_COLLECTION_H_PY="./scripts/bangc_kernels_path_config/bangc_kernels_gen_header_file_for_mlu_ops.py"
+BANGC_KERNEL_PATH_CHECK="./scripts/bangc_kernels_path_config/bangc_kernels_path_check.py"
 MLUOP_SYMBOL_VIS_FILE="symbol_visibility.map"
 TARGET_SYMBOL_FILE="mlu_op.h"
+TARGET_SYMBOL_FILE_LITE_COLLECTION="bangc_kernels_collection.h"
 PACKAGE_EXTRACT_DIR="dep_libs_extract"
 
 PROG_NAME=$(basename $0)  # current script filename, DO NOT EDIT
@@ -51,6 +55,7 @@ long_args=(
   help
   mlu370 # mlu arch
   mlu590
+  mtp613
   no_prepare
   perf
   prepare
@@ -67,6 +72,9 @@ add_mlu_arch_support () {
       ;;
     --mlu590)
       bang_arch="mtp_592;"
+      ;;
+    --mtp613)
+      bang_arch="mtp_613;"
       ;;
     *)
       ;;
@@ -111,7 +119,7 @@ usage () {
     echo "    --asan                      Build with asan check enabled"
     echo "    -d, --debug                 Build mlu-ops with debug mode"
     echo "    --disable-gtest             Build mlu-ops without gtest"
-    echo "    --enable-bang-memcheck      Build with cncc '-mllvm -enable-mlisa-sanitizer -Xbang-cnas -O0 -g' arg to enable memcheck"
+    echo "    --enable-bang-memcheck      (Deprecated, use CNSanitizer instead) Build with cncc '-mllvm -enable-mlisa-sanitizer -Xbang-cnas -O0 -g' arg to enable memcheck"
     echo "    --enable-static             Build mlu-ops static library"
     echo "    --mlu370                    Build for target product MLU370: __BANG_ARCH__ = 372"
     echo "                                                                 __MLU_NRAM_SIZE__ = 768KB"
@@ -166,7 +174,7 @@ prepare_cntoolkit () {
               wget -A deb -m -p -E -k -K -np -q --reject-regex 'static'  ${PACKAGE_PATH}
 
               pushd ${PACKAGE_EXTRACT_DIR} > /dev/null
-              for filename in ../${REAL_PATH}*.deb; do
+              for filename in ../${REAL_PATH}/*.deb; do
                 dpkg -x --force-overwrite ${filename} .
                 prog_log_info "extract ${filename}"
                 if [ ${arr_modules[$i]} == "cntoolkit" ]; then
@@ -326,6 +334,7 @@ if [ $# != 0 ]; then
       --enable-bang-memcheck)
           shift
           export MLUOP_BUILD_BANG_MEMCHECK="ON"
+          prog_log_warn "[deprecated] bang memcheck, consider use CNSanitizer instead" && sleep 3
           ;;
       --enable-static)
           shift
@@ -409,17 +418,17 @@ prog_log_info "MLUOP_TARGET_CPU_ARCH = ${MLUOP_TARGET_CPU_ARCH}"
 prog_log_info "BUILD_JOBS = ${BUILD_JOBS}"
 #check compiler version and consider activate devtoolset for CentOS 7
 if [ "$OS_RELEASE_ID" = "centos" -a "$OS_RELEASE_VERSION_ID" = "7" ]; then
-  if [ ! -f "/opt/rh/devtoolset-7/enable" ]; then
-    prog_log_warn "You are using CentOS 7 but without 'devtoolset-7' installed."
-    prog_log_warn "You should use docker image, or prepare devtoolset-7 by yourself."
+  if [ ! -f "/opt/rh/devtoolset-8/enable" ]; then
+    prog_log_warn "You are using CentOS 8 but without 'devtoolset-8' installed."
+    prog_log_warn "You should use docker image, or prepare devtoolset-8 by yourself."
     sleep 1 # I hope user will see it
   fi
 fi
 
-if [[ "$(g++ --version | head -n1 | awk '{ print $3 }' | cut -d '.' -f1)" < "5" ]]; then
-  prog_log_note "we do not support g++<5, try to activate devtoolset-7 env"
-  source /opt/rh/devtoolset-7/enable && prog_log_warn "devtoolset-7 activated" \
-    || ( prog_log_warn "source devtoolset-7 failed, ignore this info if you have set env TOOLCHAIN_ROOT, TARGET_C_COMPILER, TARGET_CXX_COMPILER properly (see more details in README.md)" && sleep 4 ) # I hope user will see it
+if [[ "$(g++ --version | head -n1 | awk '{ print $3 }' | cut -d '.' -f1)" -lt "5" ]]; then
+  prog_log_note "we do not support g++<5, try to activate devtoolset-8 env"
+  source /opt/rh/devtoolset-8/enable && prog_log_warn "devtoolset-8 activated" \
+    || ( prog_log_warn "source devtoolset-8 failed, ignore this info if you have set env TOOLCHAIN_ROOT, TARGET_C_COMPILER, TARGET_CXX_COMPILER properly (see more details in README.md)" && sleep 4 ) # I hope user will see it
 fi
 
 if [ ! -d "$BUILD_PATH" ]; then
@@ -453,9 +462,14 @@ fi
 export PATH=${NEUWARE_HOME}/bin:$PATH
 export LD_LIBRARY_PATH=${NEUWARE_HOME}/lib64:$LD_LIBRARY_PATH
 
+# GEN_BANGC_KERNELS_COLLECTION_H_PY="scripts/bangc_kernels_path_config/bangc_kernels_gen_header_file_for_mlu_ops.py"
+# BANGC_KERNEL_PATH_CHECK="scripts/bangc_kernels_path_config/bangc_kernels_path_check.py"
+python3 ${BANGC_KERNEL_PATH_CHECK}
+python3 ${GEN_BANGC_KERNELS_COLLECTION_H_PY}
+
 prog_log_info "generate ${MLUOP_SYMBOL_VIS_FILE} file."
-prog_log_info "python3 ${GEN_SYMBOL_VIS_FILE_PY} ${BUILD_PATH}/${MLUOP_SYMBOL_VIS_FILE} ${TARGET_SYMBOL_FILE}"
-python3 ${GEN_SYMBOL_VIS_FILE_PY} ${BUILD_PATH}/${MLUOP_SYMBOL_VIS_FILE} ${TARGET_SYMBOL_FILE}
+prog_log_info "python3 ${GEN_SYMBOL_VIS_FILE_PY} ${BUILD_PATH}/${MLUOP_SYMBOL_VIS_FILE} ${TARGET_SYMBOL_FILE} ${TARGET_SYMBOL_FILE_LITE_COLLECTION}"
+python3 ${GEN_SYMBOL_VIS_FILE_PY} ${BUILD_PATH}/${MLUOP_SYMBOL_VIS_FILE} ${TARGET_SYMBOL_FILE} ${TARGET_SYMBOL_FILE_LITE_COLLECTION}
 
 pushd ${BUILD_PATH} > /dev/null
   prog_log_info "Rmove cmake cache ${PWD}"
@@ -469,7 +483,7 @@ pushd ${BUILD_PATH} > /dev/null
                 -DBUILD_VERSION="${BUILD_VERSION}" \
                 -DMAJOR_VERSION="${MAJOR_VERSION}" \
                 -DMLUOP_BUILD_ASAN_CHECK="${MLUOP_BUILD_ASAN_CHECK}" \
-                -DMLUOP_BUILD_BANG_MEMCHECK="${MLUOP_BUILD_BANG_MEMCHECK}" \
+                -DMLUOP_BUILD_BANG_MEMCHECK="${MLUOP_BUILD_BANG_MEMCHECK:-OFF}" \
                 -DMLUOP_MLU_ARCH_LIST="${MLUOP_MLU_ARCH_LIST}" \
                 -DMLUOP_TARGET_CPU_ARCH="${MLUOP_TARGET_CPU_ARCH}" \
                 -DMLUOP_BUILD_SPECIFIC_OP="${MLUOP_BUILD_SPECIFIC_OP}" \

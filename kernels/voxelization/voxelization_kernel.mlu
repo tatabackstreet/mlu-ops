@@ -28,8 +28,9 @@
 #include "core/logging.h"
 #include "kernels/kernel.h"
 #include "kernels/utils/common.h"
+#include "kernels/utils/scatter_gather.h"
 
-__nram__ char nram_buffer[MAX_NRAM_SIZE];
+__nram__ int8_t nram_buffer[MAX_NRAM_SIZE];
 
 template <typename T>
 __mlu_func__ bool containNanInf(const T pos1, const T pos2) {
@@ -40,10 +41,9 @@ __mlu_func__ bool containNanInf(const T pos1, const T pos2) {
   return false;
 }
 
-#if __BANG_ARCH__ >= 322
 __mlu_func__ void computeDynamicVoxelize(
-    char *points_x, char *points_y, char *points_z, char *auxiliary_a,
-    char *auxiliary_b, char *auxiliary_c, const float coors_x_min,
+    int8_t *points_x, int8_t *points_y, int8_t *points_z, int8_t *auxiliary_a,
+    int8_t *auxiliary_b, int8_t *auxiliary_c, const float coors_x_min,
     const float coors_y_min, const float coors_z_min, const float voxel_x,
     const float voxel_y, const float voxel_z, const int32_t grid_x,
     const int32_t grid_y, const int32_t grid_z, const int32_t deal_num) {
@@ -125,8 +125,8 @@ __mlu_func__ void computeDynamicVoxelize(
              deal_num);
 }
 
-__mlu_func__ void computePoint2Voxel(char *coors_x, char *coors_y,
-                                     char *coors_z, const int32_t c_x,
+__mlu_func__ void computePoint2Voxel(int8_t *coors_x, int8_t *coors_y,
+                                     int8_t *coors_z, const int32_t c_x,
                                      const int32_t c_y, const int32_t c_z,
                                      const int32_t max_points, int32_t *num,
                                      int32_t *first_point,
@@ -153,14 +153,12 @@ __mlu_func__ void computePoint2Voxel(char *coors_x, char *coors_y,
     *num += (int32_t)__bang_count((float *)coors_x, deal_num);
   }
 }
-#endif
 
 __mlu_global__ void mluDynamicVoxelize(const float *points,
                                        const float *voxel_size_gdram,
                                        const float *coors_range_gdram,
                                        int32_t *coors, const int32_t num_points,
                                        const int32_t num_features) {
-#if __BANG_ARCH__ >= 322
   if (__is_mpu()) {
     return;
   }
@@ -200,18 +198,19 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
       contain_nan_inf ? INT_MIN : round((coors_z_max - coors_z_min) / voxel_z);
 
   const int32_t split_num = 9;
-  const int32_t deal_num =
-      FLOOR_ALIGN(MAX_NRAM_SIZE / split_num / sizeof(float), NFU_ALIGN_SIZE);
+  // voxel_size + coors_range need 36 bytes on nram.
+  const int32_t deal_num = FLOOR_ALIGN(
+      (MAX_NRAM_SIZE - 36) / split_num / sizeof(float), NFU_ALIGN_SIZE);
   const int32_t repeat = points_per_core / deal_num;
   const int32_t rem = points_per_core % deal_num;
   const int32_t ping_pong_gap = 3 * deal_num * sizeof(float);
 
-  char *points_x = nram_buffer;
-  char *points_y = points_x + deal_num * sizeof(float);
-  char *points_z = points_y + deal_num * sizeof(float);
-  char *auxiliary_a = points_x + 2 * ping_pong_gap;
-  char *auxiliary_b = auxiliary_a + deal_num * sizeof(float);
-  char *auxiliary_c = auxiliary_b + deal_num * sizeof(float);
+  int8_t *points_x = nram_buffer + 36;
+  int8_t *points_y = points_x + deal_num * sizeof(float);
+  int8_t *points_z = points_y + deal_num * sizeof(float);
+  int8_t *auxiliary_a = points_x + 2 * ping_pong_gap;
+  int8_t *auxiliary_b = auxiliary_a + deal_num * sizeof(float);
+  int8_t *auxiliary_c = auxiliary_b + deal_num * sizeof(float);
 
   int32_t *coors_z_start = coors + points_start;
   int32_t *coors_y_start = coors + num_points + points_start;
@@ -250,7 +249,6 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
   }
 
   for (int32_t i = 0; i < repeat - 2; ++i) {
-    pvLock();
     __memcpy_async(coors_x_start + i * deal_num,
                    points_x + (i % 2) * ping_pong_gap,
                    deal_num * sizeof(int32_t), NRAM2GDRAM);
@@ -260,7 +258,7 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
     __memcpy_async(coors_z_start + i * deal_num,
                    points_z + (i % 2) * ping_pong_gap,
                    deal_num * sizeof(int32_t), NRAM2GDRAM);
-    pvUnlock();
+
     __memcpy_async(points_x + (i % 2) * ping_pong_gap,
                    points + (points_start + (i + 2) * deal_num) * num_features,
                    sizeof(float), GDRAM2NRAM, sizeof(float),
@@ -285,7 +283,6 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
   }
 
   if (repeat >= 2) {
-    pvLock();
     __memcpy_async(coors_x_start + (repeat - 2) * deal_num,
                    points_x + (repeat % 2) * ping_pong_gap,
                    deal_num * sizeof(int32_t), NRAM2GDRAM);
@@ -295,9 +292,9 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
     __memcpy_async(coors_z_start + (repeat - 2) * deal_num,
                    points_z + (repeat % 2) * ping_pong_gap,
                    deal_num * sizeof(int32_t), NRAM2GDRAM);
-    pvUnlock();
   }
   if (rem > 0) {
+    __sync();
     __memcpy_async(points_x + (repeat % 2) * ping_pong_gap,
                    points + (points_start + repeat * deal_num) * num_features,
                    sizeof(float), GDRAM2NRAM, sizeof(float),
@@ -324,7 +321,6 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
   __sync();
 
   if (repeat > 0) {
-    pvLock();
     __memcpy_async(coors_x_start + (repeat - 1) * deal_num,
                    points_x + ((repeat - 1) % 2) * ping_pong_gap,
                    deal_num * sizeof(int32_t), NRAM2GDRAM);
@@ -334,7 +330,6 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
     __memcpy_async(coors_z_start + (repeat - 1) * deal_num,
                    points_z + ((repeat - 1) % 2) * ping_pong_gap,
                    deal_num * sizeof(int32_t), NRAM2GDRAM);
-    pvUnlock();
   }
   if (rem > 0) {
     computeDynamicVoxelize(points_x + (repeat % 2) * ping_pong_gap,
@@ -344,7 +339,6 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
                            coors_z_min, voxel_x, voxel_y, voxel_z, grid_x,
                            grid_y, grid_z, rem);
     __sync();
-    pvLock();
     __memcpy_async(coors_x_start + repeat * deal_num,
                    points_x + (repeat % 2) * ping_pong_gap,
                    rem * sizeof(int32_t), NRAM2GDRAM);
@@ -354,16 +348,13 @@ __mlu_global__ void mluDynamicVoxelize(const float *points,
     __memcpy_async(coors_z_start + repeat * deal_num,
                    points_z + (repeat % 2) * ping_pong_gap,
                    rem * sizeof(int32_t), NRAM2GDRAM);
-    pvUnlock();
   }
-#endif
 }
 
 __mlu_global__ void mluPoint2Voxel(int32_t *coors, int32_t *point_to_pointidx,
                                    int32_t *point_to_voxelidx,
                                    const int32_t num_points,
                                    const int32_t max_points) {
-#if __BANG_ARCH__ >= 322
   if (__is_mpu()) {
     return;
   }
@@ -373,9 +364,9 @@ __mlu_global__ void mluPoint2Voxel(int32_t *coors, int32_t *point_to_pointidx,
       FLOOR_ALIGN(MAX_NRAM_SIZE / split_num / sizeof(int32_t), NFU_ALIGN_SIZE);
   const int32_t ping_pong_gap = 3 * deal_num * sizeof(int32_t);
 
-  char *coors_x = nram_buffer;
-  char *coors_y = coors_x + deal_num * sizeof(int32_t);
-  char *coors_z = coors_y + deal_num * sizeof(int32_t);
+  int8_t *coors_x = nram_buffer;
+  int8_t *coors_y = coors_x + deal_num * sizeof(int32_t);
+  int8_t *coors_z = coors_y + deal_num * sizeof(int32_t);
 
   int32_t *coors_z_start = coors;
   int32_t *coors_y_start = coors + num_points;
@@ -467,7 +458,6 @@ __mlu_global__ void mluPoint2Voxel(int32_t *coors, int32_t *point_to_pointidx,
       point_to_voxelidx[point_idx] = -1;
     }
   }
-#endif
 }
 
 __mlu_global__ void mluCalcPointsPerVoxel(
@@ -512,7 +502,7 @@ __mlu_global__ void mluCalcPointsPerVoxel(
 
     // generate 0~deal_num indices.
     __mluop_get_stage_indices_tfuse(nram_base_offset, max_nram_count);
-    __bang_write_zero(nram_temp_zeros, max_nram_count);
+    __bang_write_value(nram_temp_zeros, max_nram_count, (int32_t)0);
     for (int32_t i = 0; i <= repeat; i++) {
       if (i == repeat && rem == 0) {
         break;
@@ -522,6 +512,7 @@ __mlu_global__ void mluCalcPointsPerVoxel(
       int32_t deal_num_align8 = PAD_UP(deal_num, 8);
 
       // step1: load p2p/p2v data.
+      __sync_compute();
       __memcpy_async(nram_p2p_idx, point_to_pointidx + points_offset,
                      deal_num * sizeof(int32_t), GDRAM2NRAM);
       __memcpy(nram_p2v_idx, point_to_voxelidx + points_offset,
@@ -557,9 +548,10 @@ __mlu_global__ void mluCalcPointsPerVoxel(
         // compute scatter src: voxel_idx
         __bang_add_scalar(nram_temp_mask, nram_base_offset, voxel_num_temp,
                           deal_num);
-        __scatter(nram_scatter_output, nram_temp_mask,
-                  (unsigned int *)nram_scatter_offset, nram_mask_bitindex,
-                  sizeof(int32_t), NRAM2NRAM, sizeof(int32_t), reserve_voxels);
+        __mluop_scatter<int32_t>(nram_scatter_output, nram_temp_mask,
+                                 (unsigned int *)nram_scatter_offset,
+                                 (uint8_t *)nram_mask_bitindex, sizeof(int32_t),
+                                 NRAM2NRAM, sizeof(int32_t), reserve_voxels);
         __memcpy(num_points_per_voxel + voxel_num_temp, nram_scatter_mask,
                  reserve_voxels * sizeof(int32_t), NRAM2GDRAM);
         voxel_num_temp += reserve_voxels;
@@ -578,8 +570,9 @@ __mlu_global__ void mluCalcPointsPerVoxel(
       if (count > 0) {
         __bang_mul_scalar(nram_p2p_idx, nram_p2p_idx, sizeof(int32_t), count);
         // get repeated point real point_id
-        __gather(gather_output, coor_to_voxelidx, (unsigned int *)nram_p2p_idx,
-                 sizeof(int32_t), GDRAM2NRAM, sizeof(int32_t), count);
+        __mluop_gather<int32_t>(
+            gather_output, coor_to_voxelidx, (unsigned int *)nram_p2p_idx, NULL,
+            sizeof(int32_t), GDRAM2NRAM, sizeof(int32_t), count);
         __bang_eq_scalar(nram_scatter_mask, gather_output, -1, count);
         __bang_not(nram_scatter_mask, nram_scatter_mask, count);
         __bang_gt_bitindex((float *)nram_mask_bitindex,
@@ -592,9 +585,10 @@ __mlu_global__ void mluCalcPointsPerVoxel(
                       gather_mask, deal_num);
         __bang_mul_scalar(nram_temp_mask, nram_temp_mask, sizeof(int32_t),
                           deal_num);
-        __scatter(coor_to_voxelidx, gather_output,
-                  (unsigned int *)nram_temp_mask, nram_mask_bitindex,
-                  sizeof(int32_t), NRAM2GDRAM, sizeof(int32_t), count);
+        __mluop_scatter<int32_t>(coor_to_voxelidx, gather_output,
+                                 (unsigned int *)nram_temp_mask,
+                                 (uint8_t *)nram_mask_bitindex, sizeof(int32_t),
+                                 NRAM2GDRAM, sizeof(int32_t), count);
 
         // step4: compute num_points_per_voxel
         for (int32_t i = 0; i < count; i++) {
@@ -702,7 +696,6 @@ __mlu_global__ void mluAssignVoxelsCoors(
     int32_t *coor_to_voxelidx, float *voxels, int32_t *coors,
     const int32_t max_points, const int32_t num_points,
     const int32_t num_features) {
-#if __BANG_ARCH__ >= 322
   if (__is_mpu()) {
     return;
   }
@@ -754,7 +747,6 @@ __mlu_global__ void mluAssignVoxelsCoors(
     }
   }
   __sync();
-#endif
 }
 
 mluOpStatus_t MLUOP_WIN_API KernelDynamicVoxelize(

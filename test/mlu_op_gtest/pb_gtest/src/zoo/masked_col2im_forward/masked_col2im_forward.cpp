@@ -43,11 +43,11 @@ void MaskedCol2imForwardExecutor::paramCheck() {
 void MaskedCol2imForwardExecutor::init() {
   auto col_desc = tensor_desc_[0].tensor;
   auto im_desc = tensor_desc_[3].tensor;
-  batchs_ = im_desc->dims[0];
-  channels_ = im_desc->dims[1];
-  height_ = im_desc->dims[2];
-  width_ = im_desc->dims[3];
-  mask_cnt_ = col_desc->dims[1];
+  batchs_ = im_desc->getDimIndex(0);
+  channels_ = im_desc->getDimIndex(1);
+  height_ = im_desc->getDimIndex(2);
+  width_ = im_desc->getDimIndex(3);
+  mask_cnt_ = col_desc->getDimIndex(1);
 }
 
 void MaskedCol2imForwardExecutor::workspaceMalloc() {
@@ -114,7 +114,7 @@ void MaskedCol2imForwardExecutor::cpuCompute() {
 
 int64_t MaskedCol2imForwardExecutor::getTheoryIoSize() {
   int input_size = parser_->getInputDataCount(0);
-  auto dtype = tensor_desc_[0].tensor->dtype;
+  auto dtype = tensor_desc_[0].tensor->getDtype();
   int dsize = 0;
   if (dtype == MLUOP_DTYPE_FLOAT) {
     dsize = 4;

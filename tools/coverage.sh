@@ -20,6 +20,9 @@ function usage () {
     echo "     -t [optional]: temporary dir to store raw files. optional, default is current dir."
     echo "     -e [optional]: extra gtest dir, optional, meaning that you can run other gtest."
     echo "     -l [optional]: path of libmluops.so, optional, default is ../lib/libmluops.so."
+    echo "     --ignore-core-folders [optional]: this option is used to exclude some specified folders"
+    echo "         from coverage analysis. By excluding these folders, you can focus the coverage metrics"
+    echo "         on the more dynamic and project-specific portions of the codebase."
     echo "**********************example*********************"
     echo "./coverage.sh \"./mluops_gtest --gtest_filter=*add*\""
     echo "**************************************************"
@@ -52,6 +55,15 @@ function parse_args () {
                     echo "specify temp_dir = ${temp_dir_}."
                     shift 2
                     ;;
+                --ignore-core-folders)
+                    ignore_cmd_="
+                      --ignore-filename-regex="core/*"
+                      --ignore-filename-regex="kernels/kernel.h"
+                      --ignore-filename-regex="kernels/utils/*"
+                    "
+                    echo "specify ignore-core-folders."
+                    shift 1
+                    ;;
                 *)
                     printf "${RED} ERROR: Unknown options ${1}, use -h or --help\n${NC}"
                     usage
@@ -83,9 +95,11 @@ function process () {
     # run gtest
     readonly mluops_dir=$(dirname ${lib_path_})
     export LD_LIBRARY_PATH="${mluops_dir}":$LD_LIBRARY_PATH
-    export CNRT_DUMP_PGO=1
+    export CNRT_DUMP_PGO=1 # Will be removed
+    export CN_DUMP_PGO=1
     mkdir -p ${temp_dir_}
-    export CNRT_PGO_OUTPUT_DIR=${temp_dir_}/output
+    export CNRT_PGO_OUTPUT_DIR=${temp_dir_}/output # Will be removed
+    export CN_PGO_OUTPUT_DIR=${temp_dir_}/output
     export LLVM_PROFILE_FILE=${temp_dir_}/output/host.profraw
     ${test_cmd_}
     if [[ ! -z ${extra_test_dir_} ]]; then
@@ -97,7 +111,7 @@ function process () {
 
     # export coverage data of the binaries
     mkdir -p ${temp_dir_}/info
-    llvm-cov export ${lib_path_}  -instr-profile=${temp_dir_}/profdata/host.profdata -host-only -format=lcov \
+    llvm-cov export ${lib_path_} ${ignore_cmd_} -instr-profile=${temp_dir_}/profdata/host.profdata -format=lcov \
       > ${temp_dir_}/info/host_info
 
     # device info
@@ -107,8 +121,8 @@ function process () {
     local kernels=$(awk -F '_' '{print $(NF-2)}' ${temp_dir_}/profdata/profile_list.txt | sort | uniq)
     for k in ${kernels}
     do
-        llvm-cov export ${lib_path_} -instr-profile=${temp_dir_}/profdata/device.profdata -kernel-hash-id=${k} \
-          -bang-mlu-arch=${arch} -format=lcov > "${temp_dir_}/info/device_info_${k}"
+        llvm-cov export ${lib_path_} ${ignore_cmd_} -instr-profile=${temp_dir_}/profdata/device.profdata \
+          -kernel-hash-id=${k} -bang-mlu-arch=${arch} -format=lcov > "${temp_dir_}/info/device_info_${k}"
     done
 
     # generate report
@@ -121,7 +135,7 @@ function process () {
     done
     # show the coverage test report
     if [[ ! -z ${op_dir_name} ]]; then
-        html2text ${temp_dir_}/result/kernels/${op_dir_name}/index.html
+        html2text ${temp_dir_}/result/mlu-ops/kernels/${op_dir_name}/index.html
     else
         html2text ${temp_dir_}/result/index.html
     fi
@@ -153,7 +167,6 @@ function main () {
     fi
 
     parse_args "$@"
-    export MLU_VISIBLE_DEVICES=${DEVICE_ID}
     process
 }
 
